@@ -1,0 +1,23 @@
+{
+  "name": "kinda-db",
+  "version": "0.1.0",
+  "description": "...",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/kinda/kinda-db"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Manuel Vila <mvila@3base.com>",
+  "license": "MIT",
+  "dependencies": {
+    "kinda-config": "https://github.com/kinda/kinda-config/tarball/master",
+    "kinda-db-store": "https://github.com/kinda/kinda-db-store/tarball/master",
+    "kinda-db-rest": "https://github.com/kinda/kinda-db-rest/tarball/master",
+    "kinda-object": "https://github.com/kinda/kinda-object/tarball/master",
+    "kinda-util": "https://github.com/kinda/kinda-util/tarball/master",
+    "lodash": "^2.4.1"
+  }
+}
