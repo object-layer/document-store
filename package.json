@@ -13,11 +13,11 @@
   "author": "Manuel Vila <mvila@3base.com>",
   "license": "MIT",
   "dependencies": {
-    "kinda-config": "https://github.com/kinda/kinda-config/tarball/master",
-    "kinda-db-store": "https://github.com/kinda/kinda-db-store/tarball/master",
-    "kinda-db-rest": "https://github.com/kinda/kinda-db-rest/tarball/master",
-    "kinda-object": "https://github.com/kinda/kinda-object/tarball/master",
-    "kinda-util": "https://github.com/kinda/kinda-util/tarball/master",
+    "kinda-config": "kinda/kinda-config",
+    "kinda-db-store": "kinda/kinda-db-store",
+    "kinda-db-rest": "kinda/kinda-db-rest",
+    "kinda-object": "kinda/kinda-object",
+    "kinda-util": "kinda/kinda-util",
     "lodash": "^2.4.1"
   }
 }
