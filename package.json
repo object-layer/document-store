@@ -15,9 +15,6 @@
   "dependencies": {
     "kinda-config": "kinda/kinda-config",
     "kinda-db-store": "kinda/kinda-db-store",
-    "kinda-db-rest": "kinda/kinda-db-rest",
-    "kinda-object": "kinda/kinda-object",
-    "kinda-util": "kinda/kinda-util",
-    "lodash": "^2.4.1"
+    "kinda-db-rest": "kinda/kinda-db-rest"
   }
 }
