@@ -17,8 +17,8 @@
   "author": "Manuel Vila <mvila@3base.com>",
   "license": "MIT",
   "dependencies": {
-    "kinda-config": "kinda/kinda-config",
-    "kinda-db-store": "kinda/kinda-db-store",
-    "kinda-db-rest": "kinda/kinda-db-rest"
+    "kinda-config": "^0.2.2",
+    "kinda-db-store": "^0.1.0",
+    "kinda-db-rest": "^0.1.0"
   }
 }
