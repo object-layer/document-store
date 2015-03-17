@@ -1,9 +1,14 @@
 language: node_js
 node_js:
-- '0.11'
+- '0.12'
 branches:
   only:
   - master
+services:
+- mysql
+before_script:
+- mysql --user=root --execute='CREATE DATABASE IF NOT EXISTS test;'
+- mysql --user=root --execute='GRANT ALL ON test.* TO test@localhost;'
 cache:
   directories:
   - node_modules

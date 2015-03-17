@@ -12,7 +12,7 @@
     "release-patch": "npm run release --release-type=patch",
     "release-minor": "npm run release --release-type=minor",
     "release-major": "npm run release --release-type=major",
-    "test": "echo \"Warning: no test specified\" && exit 0"
+    "test": "mocha --harmony --ui tdd"
   },
   "author": "Manuel Vila <mvila@3base.com>",
   "license": "MIT",
@@ -20,5 +20,10 @@
     "kinda-config": "^0.2.2",
     "kinda-db-store": "^0.1.0",
     "kinda-db-rest": "^0.1.0"
+  },
+  "devDependencies": {
+    "chai": "^2.1.2",
+    "co-mocha": "^1.1.0",
+    "mocha": "^2.2.1"
   }
 }
