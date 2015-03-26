@@ -1,6 +1,6 @@
 {
   "name": "kinda-db",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "...",
   "repository": {
     "type": "git",
@@ -17,9 +17,13 @@
   "author": "Manuel Vila <mvila@3base.com>",
   "license": "MIT",
   "dependencies": {
+    "co-wait": "0.0.0",
     "kinda-config": "^0.2.2",
-    "kinda-db-store": "^0.1.0",
-    "kinda-db-rest": "^0.1.0"
+    "kinda-log": "^0.1.8",
+    "kinda-object": "^0.1.0",
+    "kinda-store": "^0.1.0",
+    "kinda-util": "^0.1.6",
+    "lodash": "^3.5.0"
   },
   "devDependencies": {
     "chai": "^2.1.2",
