@@ -271,5 +271,33 @@ suite('KindaDB', function() {
       var keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['bbb', 'ccc', 'fff']);
     });
+
+    test('change an item inside a transaction', function *() {
+      yield db.transaction(function *(tr) {
+        var item = yield tr.getItem('People', 'aaa');
+        item.firstName = 'Manu';
+        yield tr.putItem('People', 'aaa', item);
+        var item = yield tr.getItem('People', 'aaa');
+        assert.strictEqual(item.firstName, 'Manu');
+      });
+      var item = yield db.getItem('People', 'aaa');
+      assert.strictEqual(item.firstName, 'Manu');
+    });
+
+    test('change an item inside an aborted transaction', function *() {
+      try {
+        yield db.transaction(function *(tr) {
+          var item = yield tr.getItem('People', 'aaa');
+          item.firstName = 'Manu';
+          yield tr.putItem('People', 'aaa', item);
+          var item = yield tr.getItem('People', 'aaa');
+          assert.strictEqual(item.firstName, 'Manu');
+          throw new Error('something wrong');
+        });
+      } catch (err) {
+      }
+      var item = yield db.getItem('People', 'aaa');
+      assert.strictEqual(item.firstName, 'Manuel');
+    });
   });
 });
