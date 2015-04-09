@@ -265,7 +265,8 @@ suite('KindaDB', function() {
     });
 
     test('find and delete items', function *() {
-      yield db.findAndDeleteItems('People', { query: { country: 'France' } });
+      var options = { query: { country: 'France' }, batchSize: 2 };
+      yield db.findAndDeleteItems('People', options);
       var items = yield db.findItems('People');
       var keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['bbb', 'ccc', 'fff']);
