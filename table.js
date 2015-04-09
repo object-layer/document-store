@@ -34,6 +34,27 @@ var Table = KindaObject.extend('Table', function() {
     return this.indexes[i];
   };
 
+  this.findIndexForQueryAndOrder = function(query, order) {
+    if (!query) query = {};
+    if (!order) order = [];
+    order = this.normalizeKeys(order);
+    var queryKeys = _.keys(query);
+    var orderKeys = order;
+    var indexes = this.indexes;
+    if (queryKeys.length) {
+      indexes = _.filter(indexes, function(index) {
+        var keys = _.take(index.keys, queryKeys.length);
+        return _.difference(queryKeys, keys).length === 0;
+      });
+    }
+    var index = _.find(indexes, function(index) {
+      var keys = _.drop(index.keys, queryKeys.length);
+      return _.isEqual(keys, orderKeys);
+    });
+    if (!index) throw new Error('index not found');
+    return index;
+  };
+
   this.findIndexIndex = function(keys) {
     keys = this.normalizeKeys(keys);
     return _.findIndex(this.indexes, function(index) {

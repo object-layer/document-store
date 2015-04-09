@@ -284,14 +284,14 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     log.info("Creating index '" + index.name + "' (database '" + this.name + "', table '" + table.name + "')...");
     table.indexes.push(index);
     yield this.saveDatabase();
-    yield this.forRange(table, {}, function *(item, key) {
+    yield this.forEachItems(table, {}, function *(item, key) {
       yield this.updateIndex(table, key, undefined, item, index);
     }, this);
     delete index.isCreating;
     yield this.saveDatabase();
   };
 
-  this.delIndex = function *(table, keys, options) {
+  this.removeIndex = function *(table, keys, options) {
     table = this.normalizeTable(table);
     keys = table.normalizeKeys(keys);
     var i = table.findIndexIndex(keys);
@@ -300,7 +300,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     log.info("Deleting index '" + index.name + "' (database '" + this.name + "', table '" + table.name + "')...");
     index.isDeleting = true; // TODO: use this flag to detect incomplete index deletion
     yield this.saveDatabase();
-    yield this.forRange(table, {}, function *(item, key) {
+    yield this.forEachItems(table, {}, function *(item, key) {
       // TODO: can be optimized with direct delete of the index records
       yield this.updateIndex(table, key, item, undefined, index);
     }, this);
@@ -364,19 +364,39 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     return table.name + ':' + index.name;
   };
 
+  this.makeIndexKeyForQuery = function(table, index, query) {
+    if (!query) query = {};
+    var indexKey = [this.name, this.makeIndexTableName(table, index)];
+    var queryKeys = _.keys(query);
+    for (var i = 0; i < queryKeys.length; i++) {
+      var key = index.keys[i];
+      indexKey.push(query[key]);
+    }
+    return indexKey;
+  };
+
   // === Basic operations ====
 
-  // TODO: 'properties' option
-  this.get = function *(table, key, options) {
+  // Options:
+  //   errorIfMissing: throw an error if the item is not found. Default: true.
+  //   properties: indicates properties to fetch. '*' for all properties or
+  //     an array of property name. If an index projection matches
+  //     the requested properties, the projection is used. Default: '*'.
+  this.getItem = function *(table, key, options) {
     table = this.normalizeTable(table);
     yield this.initializeTable(table);
     key = this.normalizeKey(key);
-    options = this.normalizeGetOptions(options);
+    options = this.normalizeOptions(options);
     var item = yield this.store.get(this.makeItemKey(table, key), options);
     return item;
   };
 
-  this.put = function *(table, key, item, options) {
+  // Options:
+  //   createIfMissing: add the item if it is missing in the table.
+  //     If the item is already present, replace it. Default: true.
+  //   errorIfExists: throw an error if the item is already present
+  //     in the table. Default: false.
+  this.putItem = function *(table, key, item, options) {
     table = this.normalizeTable(table);
     yield this.initializeTable(table);
     key = this.normalizeKey(key);
@@ -387,11 +407,13 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
       var oldItem = yield tr.store.get(itemKey, { errorIfMissing: false });
       yield tr.store.put(itemKey, item, options);
       yield tr.updateIndexes(table, key, oldItem, item);
-      yield tr.emitAsync('didPut', table, key, item, options);
+      yield tr.emitAsync('didPutItem', table, key, item, options);
     });
   };
 
-  this.del = function *(table, key, options) {
+  // Options:
+  //   errorIfMissing: throw an error if the item is not found. Default: true.
+  this.deleteItem = function *(table, key, options) {
     table = this.normalizeTable(table);
     yield this.initializeTable(table);
     key = this.normalizeKey(key);
@@ -402,20 +424,22 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
       if (oldItem) {
         yield tr.store.del(itemKey, options);
         yield tr.updateIndexes(table, key, oldItem, undefined);
-        yield tr.emitAsync('didDel', table, key, oldItem, options);
+        yield tr.emitAsync('didDeleteItem', table, key, oldItem, options);
       }
     });
   };
 
-  // TODO: 'properties' option
-  this.getMany = function *(table, keys, options) {
+  // Options:
+  //   properties: indicates properties to fetch. '*' for all properties or
+  //     an array of property name. Default: '*'. TODO
+  this.getItems = function *(table, keys, options) {
     table = this.normalizeTable(table);
     yield this.initializeTable(table);
     if (!_.isArray(keys))
       throw new Error('invalid keys (should be an array)');
     if (!keys.length) return [];
     keys = keys.map(this.normalizeKey, this);
-    options = this.normalizeGetOptions(options);
+    options = this.normalizeOptions(options);
     var itemKeys = keys.map(function(key) {
       return this.makeItemKey(table, key)
     }, this);
@@ -431,13 +455,23 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     return items;
   };
 
-  // TODO: 'properties' option
-  this.getRange = function *(table, options) {
+  // Options:
+  //   query: specifies the search query.
+  //     Example: { blogId: 'xyz123', postId: 'abc987' }.
+  //   order: specifies the property to order the results by:
+  //     Example: ['lastName', 'firstName'].
+  //   start, startAfter, end, endBefore: ...
+  //   reverse: if true, the search is made in reverse order.
+  //   properties: indicates properties to fetch. '*' for all properties
+  //     or an array of property name. If an index projection matches
+  //     the requested properties, the projection is used.
+  //   limit: maximum number of items to return.
+  this.findItems = function *(table, options) {
     table = this.normalizeTable(table);
     yield this.initializeTable(table);
-    options = this.normalizeGetOptions(options);
-    if (options.by)
-      return yield this.getRangeBy(table, options.by, options);
+    options = this.normalizeOptions(options);
+    if (!_.isEmpty(options.query) || !_.isEmpty(options.order))
+      return yield this._findItemsWithIndex(table, options);
     options = _.clone(options);
     options.prefix = [this.name, table.name];
     options.returnValues =
@@ -451,12 +485,9 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     return items;
   };
 
-  // TODO: 'properties' option
-  this.getRangeBy = function *(table, index, options) {
-    table = this.normalizeTable(table);
-    yield this.initializeTable(table);
-    index = table.normalizeIndex(index);
-    options = this.normalizeGetOptions(options);
+  this._findItemsWithIndex = function *(table, options) {
+    var index = table.findIndexForQueryAndOrder(options.query, options.order);
+
     var fetchItem = options.properties === '*';
     var useProjection = false;
     if (!fetchItem && options.properties.length) {
@@ -467,79 +498,76 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
         log.debug("an index projection doesn't satisfy requested properties, full item will be fetched");
       }
     }
-    var queryOptions = _.clone(options);
-    queryOptions.prefix = [this.name,
-      this.makeIndexTableName(table, index)];
-    if (options.prefix)
-      queryOptions.prefix = queryOptions.prefix.concat(options.prefix);
-    queryOptions.returnValues = useProjection;
-    var items = yield this.store.getRange(queryOptions);
+
+    options = _.clone(options);
+    options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
+    options.returnValues = useProjection;
+    var items = yield this.store.getRange(options);
     items = items.map(function(item) {
       var res = { key: _.last(item.key) };
       if (useProjection) res.value = item.value;
       return res;
     });
+
     if (fetchItem) {
-      var keys = items.map(function(item) { return item.key; });
-      items = yield this.getMany(table, keys, { errorIfMissing: false });
+      var keys = _.pluck(items, 'key');
+      items = yield this.getItems(table, keys, { errorIfMissing: false });
     }
+
     return items;
   };
 
-  this.getCount = function *(table, options) {
+  // Options: same as findItems() without 'reverse' and 'properties' attributes.
+  this.countItems = function *(table, options) {
     table = this.normalizeTable(table);
     yield this.initializeTable(table);
     options = this.normalizeOptions(options);
-    if (options.by)
-      return yield this.getCountBy(table, options.by, options);
+    if (!_.isEmpty(options.query) || !_.isEmpty(options.order))
+      return yield this._countItemsWithIndex(table, options);
     options = _.clone(options);
     options.prefix = [this.name, table.name];
     return yield this.store.getCount(options);
   };
 
-  this.getCountBy = function *(table, index, options) {
-    table = this.normalizeTable(table);
-    yield this.initializeTable(table);
-    index = table.normalizeIndex(index);
-    options = this.normalizeOptions(options);
-    var queryOptions = _.clone(options);
-    queryOptions.prefix = [this.name,
-      this.makeIndexTableName(table, index)];
-    if (options.prefix)
-      queryOptions.prefix = queryOptions.prefix.concat(options.prefix);
-    return yield this.store.getCount(queryOptions);
+  this._countItemsWithIndex = function *(table, options) {
+    var index = table.findIndexForQueryAndOrder(options.query, options.order);
+    options = _.clone(options);
+    options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
+    return yield this.store.getCount(options);
   };
 
-  // === Advanced operations ===
+  // === Composed operations ===
 
-  this.forRange = function *(table, options, fn, thisArg) {
+  // Options: same as findItems() plus:
+  //   batchSize: use several findItems() operations with batchSize as limit.
+  //     Default: 250.
+  this.forEachItems = function *(table, options, fn, thisArg) {
     table = this.normalizeTable(table);
     options = this.normalizeOptions(options);
+    if (!options.batchSize) options.batchSize = 250;
     options = _.clone(options);
-    options.limit = 250;
+    options.limit = options.batchSize; // TODO: global 'limit' option
     while (true) {
-      var items = yield this.getRange(table, options);
+      var items = yield this.findItems(table, options);
       if (!items.length) break;
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
         yield fn.call(thisArg, item.value, item.key);
       }
       var lastItem = _.last(items);
-      options.startAfter = this.makeRangeKey(table, lastItem.key,
-        lastItem.value, options);
+      options.startAfter = this.makeOrderKey(table, lastItem.key, lastItem.value, options.order);
       delete options.start;
-      delete options.startBefore;
-      delete options.value;
     };
   };
 
-  this.delRange = function *(table, options) {
+  // Options: same as forEachItems() without 'properties' attribute.
+  this.findAndDeleteItems = function *(table, options) {
     table = this.normalizeTable(table);
     options = this.normalizeOptions(options);
     options = _.clone(options);
-    options.returnValues = false;
-    yield this.forRange(table, options, function *(item, key) {
-      yield this.del(table, key, { errorIfMissing: false });
+    options.properties = [];
+    yield this.forEachItems(table, options, function *(value, key) {
+      yield this.deleteItem(table, key, { errorIfMissing: false });
     }, this);
   };
 
@@ -549,19 +577,14 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     return [this.name, table.name, key];
   };
 
-  this.makeRangeKey = function(table, key, item, options) {
-    table = this.normalizeTable(table);
-    key = this.normalizeKey(key);
-    item = this.normalizeItem(item);
-    options = this.normalizeOptions(options);
-    if (!options.by) return [key];
-    var index = table.normalizeIndex(options.by);
-    var rangeKey = index.keys.map(function(k) {
-      return item[k];
-    });
-    if (options.prefix) rangeKey.shift(); // TODO: support array prefixes
-    rangeKey.push(key);
-    return rangeKey;
+  this.makeOrderKey = function(table, key, value, order) {
+    if (!order) order = [];
+    var orderKey = [];
+    order.forEach(function(key) {
+      orderKey.push(value[key]);
+    }, this);
+    orderKey.push(key);
+    return orderKey;
   };
 
   this.normalizeKey = function(key) {
@@ -581,13 +604,8 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
 
   this.normalizeOptions = function(options) {
     if (!options) options = {};
-    return options;
-  };
-
-  this.normalizeGetOptions = function(options) {
-    options = this.normalizeOptions(options);
     if (options.hasOwnProperty('returnValues')) {
-      log.debug("'returnValues' option is deprecated in KindaDBStore");
+      log.debug("'returnValues' option is deprecated in KindaDB");
     }
     if (!options.hasOwnProperty('properties')) {
       options.properties = '*';
