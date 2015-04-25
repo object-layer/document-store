@@ -82,11 +82,12 @@ var Table = KindaObject.extend('Table', function() {
     properties = properties.map(function(property) {
       if (_.isString(property)) { // simple index
         return { key: property, value: true };
-      } else { // computed index
-        if (!(_.isString(property.key) && _.isFunction(property.value))) {
-          throw new Error('invalid index definition');
-        }
-        return property;
+      } else if (_.isFunction(property)) { // computed index
+        var key = property.name;
+        if (!key) throw new Error('invalid index definition: computed index function cannot be anonymous');
+        return { key: key, value: property };
+      } else {
+        throw new Error('invalid index definition');
       }
     });
     return properties;

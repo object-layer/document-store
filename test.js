@@ -34,12 +34,9 @@ suite('KindaDB', function() {
         'People', ['country'], { projection: ['firstName', 'lastName'] }
       );
       yield this.addIndex('People', ['country', 'city']);
-      yield this.addIndex('People', [{
-        key: 'fullNameSortKey',
-        value: function(item) {
-          return util.makeSortKey(item.lastName, item.firstName);
-        }
-      }]);
+      yield this.addIndex('People', function fullNameSortKey(item) {
+        return util.makeSortKey(item.lastName, item.firstName);
+      });
     });
 
     yield db.initializeDatabase();
