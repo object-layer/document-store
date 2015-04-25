@@ -3,6 +3,7 @@
 require('co-mocha');
 var assert = require('chai').assert;
 var _ = require('lodash');
+var util = require('kinda-util').create();
 var KindaDB = require('./');
 
 suite('KindaDB', function() {
@@ -33,6 +34,12 @@ suite('KindaDB', function() {
         'People', ['country'], { projection: ['firstName', 'lastName'] }
       );
       yield this.addIndex('People', ['country', 'city']);
+      yield this.addIndex('People', [{
+        key: 'fullNameSortKey',
+        value: function(item) {
+          return util.makeSortKey(item.lastName, item.firstName);
+        }
+      }]);
     });
 
     yield db.initializeDatabase();
@@ -218,6 +225,12 @@ suite('KindaDB', function() {
         firstName: 'Manuel', lastName: 'Vila',
         age: 42, city: 'Paris', country: 'France'
       });
+    });
+
+    test('find items using a computed index', function *() {
+      var items = yield db.findItems('People', { order: 'fullNameSortKey' });
+      var keys = _.pluck(items, 'key');
+      assert.deepEqual(keys, ['ccc', 'bbb', 'eee', 'fff', 'aaa', 'ddd']);
     });
 
     test('count all items in a table', function *() {

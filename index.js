@@ -269,15 +269,16 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
 
   // === Indexes ====
 
-  this.addIndex = function *(table, keys, options) {
+  this.addIndex = function *(table, properties, options) {
     table = this.normalizeTable(table);
-    keys = table.normalizeKeys(keys);
+    properties = table.normalizeIndexProperties(properties);
     if (!options) options = {};
+    var keys = _.pluck(properties, 'key');
     if (table.findIndexIndex(keys) !== -1)
       throw new Error('an index with the same keys already exists');
     var index = {
       name: keys.join('+'),
-      keys: keys,
+      properties: properties,
       isCreating: true // TODO: use this flag to detect incomplete index creation
     };
     if (options.projection != null) index.projection = options.projection;
@@ -320,9 +321,17 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     newItem = util.flattenObject(newItem);
     var oldValues = [];
     var newValues = [];
-    index.keys.forEach(function(key) {
-      oldValues.push(oldItem[key]);
-      newValues.push(newItem[key]);
+    index.properties.forEach(function(property) {
+      var oldValue, newValue;
+      if (property.value === true) { // simple index
+        oldValue = oldItem[property.key];
+        newValue = newItem[property.key];
+      } else { // computed index
+        oldValue = property.value(oldItem);
+        newValue = property.value(newItem);
+      }
+      oldValues.push(oldValue);
+      newValues.push(newValue);
     });
     var oldProjection;
     var newProjection;
@@ -367,9 +376,10 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   this.makeIndexKeyForQuery = function(table, index, query) {
     if (!query) query = {};
     var indexKey = [this.name, this.makeIndexTableName(table, index)];
+    var keys = _.pluck(index.properties, 'key');
     var queryKeys = _.keys(query);
     for (var i = 0; i < queryKeys.length; i++) {
-      var key = index.keys[i];
+      var key = keys[i];
       indexKey.push(query[key]);
     }
     return indexKey;
@@ -495,7 +505,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
       useProjection = diff.length === 0;
       if (!useProjection) {
         fetchItem = true;
-        log.debug("an index projection doesn't satisfy requested properties, full item will be fetched");
+        log.debug('an index projection doesn\'t satisfy requested properties, full item will be fetched');
       }
     }
 

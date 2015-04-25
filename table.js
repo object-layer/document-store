@@ -43,12 +43,14 @@ var Table = KindaObject.extend('Table', function() {
     var indexes = this.indexes;
     if (queryKeys.length) {
       indexes = _.filter(indexes, function(index) {
-        var keys = _.take(index.keys, queryKeys.length);
+        var keys = _.pluck(index.properties, 'key');
+        keys = _.take(keys, queryKeys.length);
         return _.difference(queryKeys, keys).length === 0;
       });
     }
     var index = _.find(indexes, function(index) {
-      var keys = _.drop(index.keys, queryKeys.length);
+      var keys = _.pluck(index.properties, 'key');
+      keys = _.drop(keys, queryKeys.length);
       return _.isEqual(keys, orderKeys);
     });
     if (!index) throw new Error('index not found');
@@ -58,7 +60,8 @@ var Table = KindaObject.extend('Table', function() {
   this.findIndexIndex = function(keys) {
     keys = this.normalizeKeys(keys);
     return _.findIndex(this.indexes, function(index) {
-      return _.isEqual(index.keys, keys);
+      var indexKeys = _.pluck(index.properties, 'key');
+      return _.isEqual(indexKeys, keys);
     });
   };
 
@@ -73,6 +76,21 @@ var Table = KindaObject.extend('Table', function() {
     else
       return indexOrKeys;
   }
+
+  this.normalizeIndexProperties = function(properties) {
+    if (!_.isArray(properties)) properties = [properties];
+    properties = properties.map(function(property) {
+      if (_.isString(property)) { // simple index
+        return { key: property, value: true };
+      } else { // computed index
+        if (!(_.isString(property.key) && _.isFunction(property.value))) {
+          throw new Error('invalid index definition');
+        }
+        return property;
+      }
+    });
+    return properties;
+  };
 });
 
 module.exports = Table;

@@ -1,3 +1,22 @@
+var db = KindaDB.create('Test', 'mysql://...', [
+  {
+    name: 'People',
+    indexes: [
+      'age',
+      ['country', 'city'],
+      {
+        properties: ['lastName', 'firstName'],
+        projection: ['firstName', 'lastName', 'age']
+      },
+      function(item) {
+          return ...;
+      }
+    ]
+  }
+]);
+
+// ---------------------
+
 var KindaDB = require('kinda-db');
 
 var db = KindaDB.create('Durable', storeURL);
