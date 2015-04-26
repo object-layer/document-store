@@ -5,26 +5,32 @@ var KindaObject = require('kinda-object');
 var util = require('kinda-util').create();
 
 var Table = KindaObject.extend('Table', function() {
-  this.setCreator(function(name, database) {
+  this.setCreator(function(name, options) {
     if (!name) throw new Error('name is missing');
+    if (!options) options = {};
     this.name = name;
-    this.database = database;
     this.indexes = [];
-    this.isVirtual = true;
+    (options.indexes || []).forEach(function(index) {
+      if (!_.isPlainObject(index)) index = { properties: index };
+      var properties = index.properties;
+      var options = _.omit(index, 'properties');
+      this.addIndex(properties, options);
+    }, this);
   });
 
-  this.serialize = function() {
-    if (this.isVirtual) return;
-    return {
-      name: this.name,
-      indexes: this.indexes
+  this.addIndex = function(properties, options) {
+    var properties = this.normalizeIndexProperties(properties);
+    if (!options) options = {};
+    var keys = _.pluck(properties, 'key');
+    if (this.findIndexIndex(keys) !== -1) {
+      throw new Error('an index with the same keys already exists');
+    }
+    var index = {
+      name: keys.join('+'),
+      properties: properties
     };
-  };
-
-  this.unserialize = function(json) {
-    this.name = json.name;
-    this.indexes = json.indexes;
-    this.isVirtual = false;
+    if (options.projection != null) index.projection = options.projection;
+    this.indexes.push(index);
   };
 
   this.findIndex = function(keys) {
@@ -75,7 +81,7 @@ var Table = KindaObject.extend('Table', function() {
       return this.findIndex(indexOrKeys);
     else
       return indexOrKeys;
-  }
+  };
 
   this.normalizeIndexProperties = function(properties) {
     if (!_.isArray(properties)) properties = [properties];
@@ -83,8 +89,8 @@ var Table = KindaObject.extend('Table', function() {
       if (_.isString(property)) { // simple index
         return { key: property, value: true };
       } else if (_.isFunction(property)) { // computed index
-        var key = property.name;
-        if (!key) throw new Error('invalid index definition: computed index function cannot be anonymous');
+        var key = property.name || property.displayName;
+        if (!key) throw new Error('invalid index definition: computed index function cannot be anonymous. Use a named function or set the displayName function property.');
         return { key: key, value: property };
       } else {
         throw new Error('invalid index definition');

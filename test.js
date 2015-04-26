@@ -7,8 +7,6 @@ var util = require('kinda-util').create();
 var KindaDB = require('./');
 
 suite('KindaDB', function() {
-  var db;
-
   var catchError = function *(fn) {
     var err;
     try {
@@ -19,50 +17,165 @@ suite('KindaDB', function() {
     return err;
   };
 
-  suiteSetup(function *() {
-    db = KindaDB.create('Test', 'mysql://test@localhost/test');
+  suite('migrations', function() {
+    test('one empty table', function *() {
+      var stats;
+      try {
+        var db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table1' }
+        ]);
 
-    db.registerMigration(1, function *() {
-      yield this.addTable('Users');
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.store.pairsCount, 0);
+
+        yield db.initializeDatabase();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.store.pairsCount, 1);
+      } finally {
+        yield db.destroyDatabase();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.store.pairsCount, 0);
+      }
     });
 
-    db.registerMigration(2, function *() {
-      yield this.addTable('People');
-      yield this.addIndex('People', ['lastName', 'firstName']);
-      yield this.addIndex('People', ['age']);
-      yield this.addIndex(
-        'People', ['country'], { projection: ['firstName', 'lastName'] }
-      );
-      yield this.addIndex('People', ['country', 'city']);
-      yield this.addIndex('People', function fullNameSortKey(item) {
-        return util.makeSortKey(item.lastName, item.firstName);
-      });
+    test('one item in a table', function *() {
+      var stats;
+      try {
+        var db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table1' }
+        ]);
+        yield db.putItem('Table1', 'aaa', { property1: 'value1' });
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.store.pairsCount, 2);
+      } finally {
+        yield db.destroyDatabase();
+      }
     });
 
-    yield db.initializeDatabase();
-  });
+    test('one table added afterwards then removed', function *() {
+      var db, stats;
+      try {
+        db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table1' }
+        ]);
+        yield db.initializeDatabase();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.tablesCount, 1);
 
-  suiteTeardown(function *() {
-    yield db.destroyDatabase();
-  });
+        db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table1' },
+          { name: 'Table2' }
+        ]);
+        yield db.initializeDatabase();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.tablesCount, 2);
 
-  test('tables definition', function *() {
-    var tables = db.getTables();
-    assert.strictEqual(tables.length, 2);
-    assert.strictEqual(tables[0].name, 'Users');
-    assert.strictEqual(tables[1].name, 'People');
-  });
+        db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table2' }
+        ]);
+        yield db.initializeDatabase();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.tablesCount, 1);
+        assert.strictEqual(stats.removedTablesCount, 1);
+      } finally {
+        yield db.destroyDatabase();
+      }
+    });
 
-  test('put, get and delete some items', function *() {
-    yield db.putItem('Users', 'mvila', { firstName: 'Manu', age: 42 });
-    var user = yield db.getItem('Users', 'mvila');
-    assert.deepEqual(user, { firstName: 'Manu', age: 42 });
-    yield db.deleteItem('Users', 'mvila');
-    var user = yield db.getItem('Users', 'mvila', { errorIfMissing: false });
-    assert.isUndefined(user);
-  });
+    test('one index added afterwards then removed', function *() {
+      var db, stats;
+      try {
+        db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table1' }
+        ]);
+        yield db.putItem('Table1', 'aaa', { property1: 'value1' });
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.indexesCount, 0);
+        assert.strictEqual(stats.store.pairsCount, 2);
 
-  suite('with many items', function() {
+        db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table1', indexes: ['property1'] }
+        ]);
+        yield db.initializeDatabase();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.indexesCount, 1);
+        assert.strictEqual(stats.store.pairsCount, 3);
+
+        yield db.putItem('Table1', 'bbb', { property1: 'value2' });
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.store.pairsCount, 5);
+
+        db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+          { name: 'Table1' }
+        ]);
+        yield db.initializeDatabase();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.indexesCount, 0);
+        assert.strictEqual(stats.store.pairsCount, 3);
+      } finally {
+        yield db.destroyDatabase();
+      }
+    });
+  }); // migrations suite
+
+  suite('simple database', function() {
+    var db;
+
+    suiteSetup(function *() {
+      db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+        { name: 'Users' }
+      ]);
+    });
+
+    suiteTeardown(function *() {
+      yield db.destroyDatabase();
+    });
+
+    test('tables definition', function *() {
+      assert.strictEqual(db.tables.length, 1);
+
+      var table = db.tables[0];
+      assert.strictEqual(table.name, 'Users');
+      assert.strictEqual(table.indexes.length, 0);
+    });
+
+    test('put, get and delete some items', function *() {
+      yield db.putItem('Users', 'mvila', { firstName: 'Manu', age: 42 });
+      var user = yield db.getItem('Users', 'mvila');
+      assert.deepEqual(user, { firstName: 'Manu', age: 42 });
+      yield db.deleteItem('Users', 'mvila');
+      var user = yield db.getItem('Users', 'mvila', { errorIfMissing: false });
+      assert.isUndefined(user);
+    });
+  }); // simple database suite
+
+  suite('rich database', function() {
+    var db;
+
+    suiteSetup(function *() {
+      db = KindaDB.create('Test', 'mysql://test@localhost/test', [
+        {
+          name: 'People',
+          indexes: [
+            ['lastName', 'firstName'],
+            'age',
+            ['country', 'city'],
+            {
+              properties: 'country',
+              projection: ['firstName', 'lastName']
+            },
+            function fullNameSortKey(item) {
+              return util.makeSortKey(item.lastName, item.firstName);
+            }
+          ]
+        }
+      ]);
+    });
+
+    suiteTeardown(function *() {
+      yield db.destroyDatabase();
+    });
+
     setup(function *() {
       yield db.putItem('People', 'aaa', {
         firstName: 'Manuel', lastName: 'Vila',
@@ -97,6 +210,15 @@ suite('KindaDB', function() {
       yield db.deleteItem('People', 'ddd', { errorIfMissing: false });
       yield db.deleteItem('People', 'eee', { errorIfMissing: false });
       yield db.deleteItem('People', 'fff', { errorIfMissing: false });
+    });
+
+    test('tables definition', function *() {
+      assert.strictEqual(db.tables.length, 1);
+      var table = db.tables[0];
+      assert.strictEqual(table.name, 'People');
+      assert.strictEqual(table.indexes.length, 5);
+      assert.strictEqual(table.indexes[0].properties.length, 2);
+      assert.strictEqual(table.indexes[0].properties[0].key, 'lastName');
     });
 
     test('get many items', function *() {
@@ -283,8 +405,11 @@ suite('KindaDB', function() {
     });
 
     test('change an item inside a transaction', function *() {
+      assert.isFalse(db.isInsideTransaction());
       yield db.transaction(function *(tr) {
+        assert.isTrue(tr.isInsideTransaction());
         var item = yield tr.getItem('People', 'aaa');
+        assert.strictEqual(item.firstName, 'Manuel');
         item.firstName = 'Manu';
         yield tr.putItem('People', 'aaa', item);
         var item = yield tr.getItem('People', 'aaa');
@@ -296,8 +421,11 @@ suite('KindaDB', function() {
 
     test('change an item inside an aborted transaction', function *() {
       try {
+        assert.isFalse(db.isInsideTransaction());
         yield db.transaction(function *(tr) {
+          assert.isTrue(tr.isInsideTransaction());
           var item = yield tr.getItem('People', 'aaa');
+          assert.strictEqual(item.firstName, 'Manuel');
           item.firstName = 'Manu';
           yield tr.putItem('People', 'aaa', item);
           var item = yield tr.getItem('People', 'aaa');
@@ -309,5 +437,5 @@ suite('KindaDB', function() {
       var item = yield db.getItem('People', 'aaa');
       assert.strictEqual(item.firstName, 'Manuel');
     });
-  });
+  }); // rich database suite
 });

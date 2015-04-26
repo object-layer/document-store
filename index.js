@@ -3,27 +3,32 @@
 var _ = require('lodash');
 var wait = require('co-wait');
 var KindaObject = require('kinda-object');
-var config = require('kinda-config').create();
+var config = require('kinda-config').get('kinda-db');
 var log = require('kinda-log').create();
 var util = require('kinda-util').create();
 var Store = require('kinda-store');
+var Table = require('./table');
 
-var VERSION = 1;
+var VERSION = 2;
 
 var KindaDB = KindaObject.extend('KindaDB', function() {
-  this.Table = require('./table');
-
-  this.setCreator(function(name, url, options) {
-    if (!name) name = config['kinda-db'] && config['kinda-db'].name;
+  this.setCreator(function(name, url, tables, options) {
+    if (!name) name = config.name;
     if (!name) throw new Error('name is missing');
-    if (!url) url = config['kinda-db'] && config['kinda-db'].url;
+    if (!url) url = config.url;
     if (!url) throw new Error('url is missing');
-    if (!options) options = config['kinda-db'] && config['kinda-db'].options || {};
+    if (!tables) tables = config.tables || [];
+    if (!options) options = config.options || {};
     this.name = name;
     this.store = Store.create(url);
     this.database = this;
-    this._tables = [];
-    this.migrations = [];
+    this.tables = [];
+    tables.forEach(function(table) {
+      if (_.isString(table)) table = { name: table };
+      var name = table.name;
+      var options = _.omit(table, 'name');
+      this.addTable(name, options);
+    }, this);
   });
 
   this.use = function(plugin) {
@@ -32,182 +37,217 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
 
   // === Database ====
 
-  this.registerMigration = function(number, fn) {
-    if (!_.isNumber(number))
-      throw new Error('invalid migration number');
-    if (number < 1)
-      throw new Error('migration number should be greater than 0');
-    if (!_.isFunction(fn))
-      throw new Error('migration function is missing');
-    if (_.some(this.migrations, 'number', number))
-      throw new Error('duplicated migration number');
-    this.migrations.push({ number: number, fn: fn });
-  };
-
   this.initializeDatabase = function *() {
-    if (this.database._isInitialized) return;
-    if (this._isInitializing) return;
-    yield this.transaction(function *(tr) {
-      try {
-        tr._isInitializing = true;
-        yield tr.createDatabase();
-        yield tr.upgradeDatabase();
-        yield tr.verifyDatabase();
-        yield tr.migrateDatabase();
-      } finally {
-        tr._isInitializing = false;
-      }
-    }, { longTransaction: true, initializeDatabase: false });
-    this.database._isInitialized = true;
-    yield this.database.emitAsync('didInitialize');
-  };
-
-  this.createDatabase = function *() {
-    yield this.store.transaction(function *(tr) {
-      if (!(yield this.loadDatabase(tr, false))) {
-        this.database.version = VERSION;
-        this.database.lastMigrationNumber = 0;
-        this.database.isLocked = false;
-        yield this.saveDatabase(tr, true);
-        log.info("Database '" + this.name + "' created");
-      }
-    }.bind(this));
-  };
-
-  this.lockDatabaseIf = function *(fn) {
-    var done = false;
-    while (!done) {
-      yield this.store.transaction(function *(tr) {
-        yield this.loadDatabase(tr);
-        if (this.isLocked) return;
-        if (fn(tr)) {
-          this.database.isLocked = true;
-          yield this.saveDatabase(tr);
+    if (this.hasBeenInitialized) return;
+    if (this.isInitializing) return;
+    if (this.isInsideTransaction()) {
+      throw new Error('cannot initialize the database inside a transaction');
+    }
+    this.isInitializing = true;
+    try {
+      var hasBeenCreated = yield this.createDatabaseIfDoesNotExist();
+      if (!hasBeenCreated) {
+        yield this.lockDatabase();
+        try {
+          yield this.upgradeDatabase();
+          yield this.verifyDatabase();
+          yield this.migrateDatabase();
+        } finally {
+          yield this.unlockDatabase();
         }
-        done = true;
-      }.bind(this));
-      if (!done) {
-        log.info("Waiting Database '" + this.name + "'...");
-        yield wait(5000); // wait 5 secs before retrying
       }
-    }
-    return this.isLocked;
-  };
-
-  this.unlockDatabase = function *() {
-    this.database.isLocked = false;
-    yield this.saveDatabase(this.store);
-  };
-
-  this.upgradeDatabase = function *() {
-    var upgradeIsNeeded = yield this.lockDatabaseIf(function() {
-      return this.version !== VERSION;
-    }.bind(this));
-    if (!upgradeIsNeeded) return;
-
-    try {
-      this.emit('upgradeDidStart');
-
-      // ... upgrading
-
-      this.database.version = VERSION;
-      log.info("Database '" + this.name + "' upgraded to version " + VERSION);
+      this.hasBeenInitialized = true;
+      yield this.emitAsync('didInitialize');
     } finally {
-      yield this.unlockDatabase();
-      this.emit('upgradeDidStop');
+      this.isInitializing = false;
     }
   };
 
-  this.verifyDatabase = function *() {
-    // TODO: test isCreating and isDeleting flags to
-    // detect incompletes indexes
-  };
-
-  this.migrateDatabase = function *(transaction) {
-    if (!this.migrations.length) return;
-    var maxMigrationNumber = _.max(this.migrations, 'number').number;
-
-    var migrationIsNeeded = yield this.lockDatabaseIf(function() {
-      if (this.lastMigrationNumber === maxMigrationNumber)
-        return false;
-      if (this.lastMigrationNumber > maxMigrationNumber)
-        throw new Error('incompatible database (lastMigrationNumber > maxMigrationNumber)');
-      return true;
-    }.bind(this));
-    if (!migrationIsNeeded) return;
-
-    try {
-      this.emit('migrationDidStart');
-      var number = this.lastMigrationNumber;
-      var migration;
-      do {
-        number++;
-        migration = _.find(this.migrations, 'number', number);
-        if (!migration) continue;
-        yield migration.fn.call(this);
-        log.info("Migration #" + number + " (database '" + this.name + "') done");
-        this.database.lastMigrationNumber = number;
-        yield this.saveDatabase(this.store);
-      } while (number < maxMigrationNumber);
-    } finally {
-      yield this.unlockDatabase();
-      this.emit('migrationDidStop');
-    }
-  };
-
-  this.loadDatabase = function *(tr, errorIfMissing) {
+  this.loadDatabaseState = function *(tr, errorIfMissing) {
     if (!tr) tr = this.store;
     if (errorIfMissing == null) errorIfMissing = true;
-    var json = yield tr.get([this.name], { errorIfMissing: errorIfMissing });
-    if (json) {
-      this.unserialize(json);
-      return true;
-    }
+    return yield tr.get([this.name], { errorIfMissing: errorIfMissing });
   };
 
-  this.saveDatabase = function *(tr, errorIfExists) {
+  this.saveDatabaseState = function *(tr, state, errorIfExists) {
     if (!tr) tr = this.store;
-    var json = this.serialize();
-    yield tr.put([this.name], json, {
+    yield tr.put([this.name], state, {
       errorIfExists: errorIfExists,
       createIfMissing: !errorIfExists
     });
   };
 
-  this.serialize = function() {
-    return {
-      version: this.version,
-      name: this.name,
-      lastMigrationNumber: this.lastMigrationNumber,
-      isLocked: this.isLocked,
-      tables: _.compact(_.invoke(this.getTables(), 'serialize'))
-    };
+  this.createDatabaseIfDoesNotExist = function *() {
+    var hasBeenCreated = false;
+    yield this.store.transaction(function *(tr) {
+      var state = yield this.loadDatabaseState(tr, false);
+      if (!state) {
+        var tables = this.tables.map(function(table) {
+          return {
+            name: table.name,
+            indexes: _.pluck(table.indexes, 'name')
+          }
+        });
+        state = {
+          name: this.name,
+          version: VERSION,
+          tables: tables
+        };
+        yield this.saveDatabaseState(tr, state, true);
+        hasBeenCreated = true;
+        log.info("Database '" + this.name + "' created");
+      }
+    }.bind(this));
+    return hasBeenCreated;
   };
 
-  this.unserialize = function(json) {
-    this.database.version = json.version;
-    this.database.name = json.name;
-    this.database.lastMigrationNumber = json.lastMigrationNumber;
-    this.database.isLocked = json.isLocked;
-    json.tables.forEach(function(jsonTable) {
-      var table = this.getTable(jsonTable.name);
-      table.unserialize(jsonTable);
+  this.lockDatabase = function *() {
+    var hasBeenLocked = false;
+    while (!hasBeenLocked) {
+      yield this.store.transaction(function *(tr) {
+        var state = yield this.loadDatabaseState(tr);
+        if (!state.isLocked) {
+          state.isLocked = hasBeenLocked = true;
+          yield this.saveDatabaseState(tr, state);
+        }
+      }.bind(this));
+      if (!hasBeenLocked) {
+        log.info("Waiting Database '" + this.name + "'...");
+        yield wait(5000); // wait 5 secs before retrying
+      }
+    }
+  };
+
+  this.unlockDatabase = function *() {
+    var state = yield this.loadDatabaseState();
+    state.isLocked = false;
+    yield this.saveDatabaseState(undefined, state);
+  };
+
+  this.upgradeDatabase = function *() {
+    var state = yield this.loadDatabaseState();
+    var version = state.version;
+
+    if (version === VERSION) return;
+
+    if (version > VERSION) {
+      throw new Error('cannot downgrade the database');
+    }
+
+    this.emit('upgradeDidStart');
+
+    if (version < 2) {
+      delete state.lastMigrationNumber;
+      state.tables.forEach(function(table) {
+        table.indexes = _.pluck(table.indexes, 'name');
+      });
+    }
+
+    state.version = VERSION;
+    yield this.saveDatabaseState(undefined, state);
+    log.info("Database '" + this.name + "' upgraded to version " + VERSION);
+
+    this.emit('upgradeDidStop');
+  };
+
+  this.verifyDatabase = function *() {
+    // ...
+  };
+
+  this.migrateDatabase = function *(transaction) {
+    var state = yield this.loadDatabaseState();
+    try {
+      // Find out added or updated tables
+      for (var i = 0; i < this.tables.length; i++) {
+        var table = this.tables[i];
+        var existingTable = _.find(state.tables, 'name', table.name);
+        if (!existingTable) {
+          this._emitMigrationDidStart();
+          state.tables.push({
+            name: table.name,
+            indexes: _.pluck(table.indexes, 'name')
+          });
+          yield this.saveDatabaseState(undefined, state);
+          log.info("Table '" + table.name + "' (database '" + this.name + "') added");
+        } else if (existingTable.hasBeenRemoved) {
+          throw new Error('adding a table that has been removed is not implemented yet');
+        } else {
+          // Find out added indexes
+          for (var j = 0; j < table.indexes.length; j++) {
+            var index = table.indexes[j];
+            if (!_.contains(existingTable.indexes, index.name)) {
+              this._emitMigrationDidStart();
+              yield this._addIndex(table, index);
+              existingTable.indexes.push(index.name);
+              yield this.saveDatabaseState(undefined, state);
+            }
+          }
+          // Find out removed indexes
+          var existingIndexNames = _.clone(existingTable.indexes);
+          for (var j = 0; j < existingIndexNames.length; j++) {
+            var existingIndexName = existingIndexNames[j];
+            if (!_.find(table.indexes, 'name', existingIndexName)) {
+              this._emitMigrationDidStart();
+              yield this._removeIndex(table.name, existingIndexName);
+              _.pull(existingTable.indexes, existingIndexName);
+              yield this.saveDatabaseState(undefined, state);
+            }
+          }
+        }
+      }
+
+      // Find out removed tables
+      for (var i = 0; i < state.tables.length; i++) {
+        var existingTable = state.tables[i];
+        if (existingTable.hasBeenRemoved) continue;
+        var table =  _.find(this.tables, 'name', existingTable.name);
+        if (!table) {
+          this._emitMigrationDidStart();
+          for (var j = 0; j < existingTable.indexes.length; j++) {
+            var existingIndexName = existingTable.indexes[j];
+            yield this._removeIndex(existingTable.name, existingIndexName);
+          }
+          existingTable.indexes.length = 0;
+          existingTable.hasBeenRemoved = true;
+          yield this.saveDatabaseState(undefined, state);
+          log.info("Table '" + existingTable.name + "' (database '" + this.name + "') removed");
+        }
+      }
+    } finally {
+      this._emitMigrationDidStop();
+    }
+  };
+
+  this._emitMigrationDidStart = function() {
+    if (!this.migrationDidStartEventHasBeenEmitted) {
+      this.emit('migrationDidStart');
+      this.migrationDidStartEventHasBeenEmitted = true;
+    }
+  };
+
+  this._emitMigrationDidStop = function() {
+    if (this.migrationDidStartEventHasBeenEmitted) {
+      this.emit('migrationDidStop');
+      delete this.migrationDidStartEventHasBeenEmitted;
+    }
+  };
+
+  this._addIndex = function *(table, index) {
+    log.info("Adding index '" + index.name + "' (database '" + this.name + "', table '" + table.name + "')...");
+    yield this.forEachItems(table, {}, function *(item, key) {
+      yield this.updateIndex(table, key, undefined, item, index);
     }, this);
   };
 
+  this._removeIndex = function *(tableName, indexName) {
+    log.info("Removing index '" + indexName + "' (database '" + this.name + "', table '" + tableName + "')...");
+    var prefix = [this.name, this.makeIndexTableName(tableName, indexName)];
+    yield this.store.delRange({ prefix: prefix });
+  };
+
   this.transaction = function *(fn, options) {
-    if (this.database !== this)
-      return yield fn(this); // we are already in a transaction
-    if (!options) options = {};
-    if (!options.hasOwnProperty('initializeDatabase'))
-      options.initializeDatabase = true;
-    if (options.initializeDatabase)
-      yield this.initializeDatabase();
-    if (options.longTransaction) {
-      // For now, just use the regular store
-      var transaction = Object.create(this);
-      return yield fn(transaction);
-    }
+    if (this.isInsideTransaction()) return yield fn(this);
+    yield this.initializeDatabase();
     return yield this.store.transaction(function *(tr) {
       var transaction = Object.create(this);
       transaction.store = tr;
@@ -215,14 +255,41 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     }.bind(this), options);
   };
 
-  this.resetDatabase = function *() {
-    this.database._isInitialized = false;
-    yield this.store.delRange({ prefix: this.name });
-    yield this.saveDatabase();
+  this.isInsideTransaction = function() {
+    return this !== this.database;
+  };
+
+  this.getStatistics = function *() {
+    var tablesCount = 0;
+    var removedTablesCount = 0;
+    var indexesCount = 0;
+    var state = yield this.loadDatabaseState(undefined, false);
+    if (state) {
+      state.tables.forEach(function(table) {
+        if (!table.hasBeenRemoved) {
+          tablesCount++;
+        } else {
+          removedTablesCount++;
+        }
+        indexesCount += table.indexes.length;
+      });
+    }
+    var storePairsCount = yield this.store.getCount({ prefix: this.name });
+    return {
+      tablesCount: tablesCount,
+      removedTablesCount: removedTablesCount,
+      indexesCount: indexesCount,
+      store: {
+        pairsCount: storePairsCount
+      }
+    };
   };
 
   this.destroyDatabase = function *() {
-    this.database._isInitialized = false;
+    if (this.isInsideTransaction()) {
+      throw new Error('cannot reset the database inside a transaction');
+    }
+    this.hasBeenInitialized = false;
     yield this.store.delRange({ prefix: this.name });
   };
 
@@ -232,82 +299,30 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
 
   // === Tables ====
 
-  this.getTables = function() {
-    return this._tables;
-  };
-
-  this.getTable = function(name) {
-    var table = _.find(this.getTables(), 'name', name);
-    if (!table) {
-      table = this.Table.create(name, this.database);
-      this.getTables().push(table);
+  this.getTable = function(name, errorIfMissing) {
+    if (errorIfMissing == null) errorIfMissing = true;
+    var table = _.find(this.tables, 'name', name);
+    if (!table && errorIfMissing) {
+      throw new Error("Table '" + table.name + "' (database '" + this.name + "') is missing");
     }
     return table;
   };
 
-  this.initializeTable = function *(table) {
-    yield this.initializeDatabase();
-    if (table.isVirtual)
-      throw new Error("Table '" + table.name + "' (database '" + this.name + "') is missing");
-  };
-
-  this.addTable = function *(name) {
-    var table = this.getTable(name);
-    if (!table.isVirtual)
+  this.addTable = function(name, options) {
+    var table = this.getTable(name, false);
+    if (table) {
       throw new Error("Table '" + name + "' (database '" + this.name + "') already exists");
-    table.isVirtual = false;
-    yield this.saveDatabase(this.store);
-    log.info("Table '" + name + "' (database '" + this.name + "') created");
-    return table;
+    }
+    table = Table.create(name, options);
+    this.tables.push(table);
   };
 
   this.normalizeTable = function(table) {
-    if (_.isString(table))
-      table = this.getTable(table);
+    if (_.isString(table)) table = this.getTable(table);
     return table;
   };
 
   // === Indexes ====
-
-  this.addIndex = function *(table, properties, options) {
-    table = this.normalizeTable(table);
-    properties = table.normalizeIndexProperties(properties);
-    if (!options) options = {};
-    var keys = _.pluck(properties, 'key');
-    if (table.findIndexIndex(keys) !== -1)
-      throw new Error('an index with the same keys already exists');
-    var index = {
-      name: keys.join('+'),
-      properties: properties,
-      isCreating: true // TODO: use this flag to detect incomplete index creation
-    };
-    if (options.projection != null) index.projection = options.projection;
-    log.info("Creating index '" + index.name + "' (database '" + this.name + "', table '" + table.name + "')...");
-    table.indexes.push(index);
-    yield this.saveDatabase();
-    yield this.forEachItems(table, {}, function *(item, key) {
-      yield this.updateIndex(table, key, undefined, item, index);
-    }, this);
-    delete index.isCreating;
-    yield this.saveDatabase();
-  };
-
-  this.removeIndex = function *(table, keys, options) {
-    table = this.normalizeTable(table);
-    keys = table.normalizeKeys(keys);
-    var i = table.findIndexIndex(keys);
-    if (i === -1) throw new Error('index not found');
-    var index = table.indexes[i];
-    log.info("Deleting index '" + index.name + "' (database '" + this.name + "', table '" + table.name + "')...");
-    index.isDeleting = true; // TODO: use this flag to detect incomplete index deletion
-    yield this.saveDatabase();
-    yield this.forEachItems(table, {}, function *(item, key) {
-      // TODO: can be optimized with direct delete of the index records
-      yield this.updateIndex(table, key, item, undefined, index);
-    }, this);
-    table.indexes.splice(i, 1);
-    yield this.saveDatabase();
-  };
 
   this.updateIndexes = function *(table, key, oldItem, newItem) {
     for (var i = 0; i < table.indexes.length; i++) {
@@ -363,19 +378,19 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this.makeIndexKey = function(table, index, values, key) {
-    var indexKey = [this.name, this.makeIndexTableName(table, index)];
+    var indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
     indexKey.push.apply(indexKey, values);
     indexKey.push(key);
     return indexKey;
   };
 
-  this.makeIndexTableName = function(table, index) {
-    return table.name + ':' + index.name;
+  this.makeIndexTableName = function(tableName, indexName) {
+    return tableName + ':' + indexName;
   };
 
   this.makeIndexKeyForQuery = function(table, index, query) {
     if (!query) query = {};
-    var indexKey = [this.name, this.makeIndexTableName(table, index)];
+    var indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
     var keys = _.pluck(index.properties, 'key');
     var queryKeys = _.keys(query);
     for (var i = 0; i < queryKeys.length; i++) {
@@ -394,9 +409,9 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   //     the requested properties, the projection is used. Default: '*'.
   this.getItem = function *(table, key, options) {
     table = this.normalizeTable(table);
-    yield this.initializeTable(table);
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
+    yield this.initializeDatabase();
     var item = yield this.store.get(this.makeItemKey(table, key), options);
     return item;
   };
@@ -408,10 +423,10 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   //     in the table. Default: false.
   this.putItem = function *(table, key, item, options) {
     table = this.normalizeTable(table);
-    yield this.initializeTable(table);
     key = this.normalizeKey(key);
     item = this.normalizeItem(item);
     options = this.normalizeOptions(options);
+    yield this.initializeDatabase();
     yield this.transaction(function *(tr) {
       var itemKey = tr.makeItemKey(table, key);
       var oldItem = yield tr.store.get(itemKey, { errorIfMissing: false });
@@ -425,9 +440,9 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   //   errorIfMissing: throw an error if the item is not found. Default: true.
   this.deleteItem = function *(table, key, options) {
     table = this.normalizeTable(table);
-    yield this.initializeTable(table);
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
+    yield this.initializeDatabase();
     yield this.transaction(function *(tr) {
       var itemKey = tr.makeItemKey(table, key);
       var oldItem = yield tr.store.get(itemKey, options);
@@ -444,7 +459,6 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   //     an array of property name. Default: '*'. TODO
   this.getItems = function *(table, keys, options) {
     table = this.normalizeTable(table);
-    yield this.initializeTable(table);
     if (!_.isArray(keys))
       throw new Error('invalid keys (should be an array)');
     if (!keys.length) return [];
@@ -454,8 +468,8 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
       return this.makeItemKey(table, key)
     }, this);
     options = _.clone(options);
-    options.returnValues =
-      options.properties === '*' || options.properties.length;
+    options.returnValues = options.properties === '*' || options.properties.length;
+    yield this.initializeDatabase();
     var items = yield this.store.getMany(itemKeys, options);
     items = items.map(function(item) {
       var res = { key: _.last(item.key) };
@@ -478,14 +492,13 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   //   limit: maximum number of items to return.
   this.findItems = function *(table, options) {
     table = this.normalizeTable(table);
-    yield this.initializeTable(table);
     options = this.normalizeOptions(options);
     if (!_.isEmpty(options.query) || !_.isEmpty(options.order))
       return yield this._findItemsWithIndex(table, options);
     options = _.clone(options);
     options.prefix = [this.name, table.name];
-    options.returnValues =
-      options.properties === '*' || options.properties.length;
+    options.returnValues = options.properties === '*' || options.properties.length;
+    yield this.initializeDatabase();
     var items = yield this.store.getRange(options);
     items = items.map(function(item) {
       var res = { key: _.last(item.key) };
@@ -512,6 +525,8 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     options = _.clone(options);
     options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
     options.returnValues = useProjection;
+
+    yield this.initializeDatabase();
     var items = yield this.store.getRange(options);
     items = items.map(function(item) {
       var res = { key: _.last(item.key) };
@@ -530,12 +545,12 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   // Options: same as findItems() without 'reverse' and 'properties' attributes.
   this.countItems = function *(table, options) {
     table = this.normalizeTable(table);
-    yield this.initializeTable(table);
     options = this.normalizeOptions(options);
     if (!_.isEmpty(options.query) || !_.isEmpty(options.order))
       return yield this._countItemsWithIndex(table, options);
     options = _.clone(options);
     options.prefix = [this.name, table.name];
+    yield this.initializeDatabase();
     return yield this.store.getCount(options);
   };
 
@@ -543,6 +558,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     var index = table.findIndexForQueryAndOrder(options.query, options.order);
     options = _.clone(options);
     options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
+    yield this.initializeDatabase();
     return yield this.store.getCount(options);
   };
 
