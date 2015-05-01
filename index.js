@@ -95,6 +95,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
         };
         yield this.saveDatabaseState(tr, state, true);
         hasBeenCreated = true;
+        yield this.emitAsync('didCreate', tr);
         log.info("Database '" + this.name + "' created");
       }
     }.bind(this));
@@ -210,7 +211,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
           existingTable.indexes.length = 0;
           existingTable.hasBeenRemoved = true;
           yield this.saveDatabaseState(undefined, state);
-          log.info("Table '" + existingTable.name + "' (database '" + this.name + "') removed");
+          log.info("Table '" + existingTable.name + "' (database '" + this.name + "') marked as removed");
         }
       }
     } finally {
@@ -242,6 +243,11 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   this._removeIndex = function *(tableName, indexName) {
     log.info("Removing index '" + indexName + "' (database '" + this.name + "', table '" + tableName + "')...");
     var prefix = [this.name, this.makeIndexTableName(tableName, indexName)];
+    yield this.store.delRange({ prefix: prefix });
+  };
+
+  this._removeTable = function *(tableName) { // used by kinda-object-db
+    var prefix = [this.name, tableName];
     yield this.store.delRange({ prefix: prefix });
   };
 
