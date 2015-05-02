@@ -338,18 +338,18 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this.updateIndex = function *(table, key, oldItem, newItem, index) {
-    oldItem = util.flattenObject(oldItem);
-    newItem = util.flattenObject(newItem);
+    var flattenedOldItem = util.flattenObject(oldItem);
+    var flattenedNewItem = util.flattenObject(newItem);
     var oldValues = [];
     var newValues = [];
     index.properties.forEach(function(property) {
       var oldValue, newValue;
       if (property.value === true) { // simple index
-        oldValue = oldItem[property.key];
-        newValue = newItem[property.key];
+        oldValue = oldItem && flattenedOldItem[property.key];
+        newValue = newItem && flattenedNewItem[property.key];
       } else { // computed index
-        oldValue = property.value(oldItem);
-        newValue = property.value(newItem);
+        oldValue = oldItem && property.value(oldItem);
+        newValue = newItem && property.value(newItem);
       }
       oldValues.push(oldValue);
       newValues.push(newValue);
@@ -358,12 +358,12 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     var newProjection;
     if (index.projection) {
       index.projection.forEach(function(key) {
-        var val = oldItem[key];
+        var val = flattenedOldItem[key];
         if (val != null) {
           if (!oldProjection) oldProjection = {};
           oldProjection[key] = val;
         }
-        val = newItem[key];
+        val = flattenedNewItem[key];
         if (val != null) {
           if (!newProjection) newProjection = {};
           newProjection[key] = val;
