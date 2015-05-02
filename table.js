@@ -59,7 +59,9 @@ var Table = KindaObject.extend('Table', function() {
       keys = _.drop(keys, queryKeys.length);
       return _.isEqual(keys, orderKeys);
     });
-    if (!index) throw new Error('index not found');
+    if (!index) {
+      throw new Error('index not found (query=' + JSON.stringify(query) + ', order=' + JSON.stringify(order) + ')');
+    }
     return index;
   };
 
