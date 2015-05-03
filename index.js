@@ -63,15 +63,15 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     }
   };
 
-  this.loadDatabaseState = function *(tr, errorIfMissing) {
+  this.loadDatabaseRecord = function *(tr, errorIfMissing) {
     if (!tr) tr = this.store;
     if (errorIfMissing == null) errorIfMissing = true;
     return yield tr.get([this.name], { errorIfMissing: errorIfMissing });
   };
 
-  this.saveDatabaseState = function *(tr, state, errorIfExists) {
+  this.saveDatabaseRecord = function *(tr, record, errorIfExists) {
     if (!tr) tr = this.store;
-    yield tr.put([this.name], state, {
+    yield tr.put([this.name], record, {
       errorIfExists: errorIfExists,
       createIfMissing: !errorIfExists
     });
@@ -80,20 +80,20 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   this.createDatabaseIfDoesNotExist = function *() {
     var hasBeenCreated = false;
     yield this.store.transaction(function *(tr) {
-      var state = yield this.loadDatabaseState(tr, false);
-      if (!state) {
+      var record = yield this.loadDatabaseRecord(tr, false);
+      if (!record) {
         var tables = this.tables.map(function(table) {
           return {
             name: table.name,
             indexes: _.pluck(table.indexes, 'name')
           }
         });
-        state = {
+        record = {
           name: this.name,
           version: VERSION,
           tables: tables
         };
-        yield this.saveDatabaseState(tr, state, true);
+        yield this.saveDatabaseRecord(tr, record, true);
         hasBeenCreated = true;
         yield this.emitAsync('didCreate', tr);
         log.info("Database '" + this.name + "' created");
@@ -106,10 +106,10 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     var hasBeenLocked = false;
     while (!hasBeenLocked) {
       yield this.store.transaction(function *(tr) {
-        var state = yield this.loadDatabaseState(tr);
-        if (!state.isLocked) {
-          state.isLocked = hasBeenLocked = true;
-          yield this.saveDatabaseState(tr, state);
+        var record = yield this.loadDatabaseRecord(tr);
+        if (!record.isLocked) {
+          record.isLocked = hasBeenLocked = true;
+          yield this.saveDatabaseRecord(tr, record);
         }
       }.bind(this));
       if (!hasBeenLocked) {
@@ -120,14 +120,14 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this.unlockDatabase = function *() {
-    var state = yield this.loadDatabaseState();
-    state.isLocked = false;
-    yield this.saveDatabaseState(undefined, state);
+    var record = yield this.loadDatabaseRecord();
+    record.isLocked = false;
+    yield this.saveDatabaseRecord(undefined, record);
   };
 
   this.upgradeDatabase = function *() {
-    var state = yield this.loadDatabaseState();
-    var version = state.version;
+    var record = yield this.loadDatabaseRecord();
+    var version = record.version;
 
     if (version === VERSION) return;
 
@@ -138,14 +138,14 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     this.emit('upgradeDidStart');
 
     if (version < 2) {
-      delete state.lastMigrationNumber;
-      state.tables.forEach(function(table) {
+      delete record.lastMigrationNumber;
+      record.tables.forEach(function(table) {
         table.indexes = _.pluck(table.indexes, 'name');
       });
     }
 
-    state.version = VERSION;
-    yield this.saveDatabaseState(undefined, state);
+    record.version = VERSION;
+    yield this.saveDatabaseRecord(undefined, record);
     log.info("Database '" + this.name + "' upgraded to version " + VERSION);
 
     this.emit('upgradeDidStop');
@@ -156,19 +156,19 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this.migrateDatabase = function *(transaction) {
-    var state = yield this.loadDatabaseState();
+    var record = yield this.loadDatabaseRecord();
     try {
       // Find out added or updated tables
       for (var i = 0; i < this.tables.length; i++) {
         var table = this.tables[i];
-        var existingTable = _.find(state.tables, 'name', table.name);
+        var existingTable = _.find(record.tables, 'name', table.name);
         if (!existingTable) {
           this._emitMigrationDidStart();
-          state.tables.push({
+          record.tables.push({
             name: table.name,
             indexes: _.pluck(table.indexes, 'name')
           });
-          yield this.saveDatabaseState(undefined, state);
+          yield this.saveDatabaseRecord(undefined, record);
           log.info("Table '" + table.name + "' (database '" + this.name + "') added");
         } else if (existingTable.hasBeenRemoved) {
           throw new Error('adding a table that has been removed is not implemented yet');
@@ -180,7 +180,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
               this._emitMigrationDidStart();
               yield this._addIndex(table, index);
               existingTable.indexes.push(index.name);
-              yield this.saveDatabaseState(undefined, state);
+              yield this.saveDatabaseRecord(undefined, record);
             }
           }
           // Find out removed indexes
@@ -191,15 +191,15 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
               this._emitMigrationDidStart();
               yield this._removeIndex(table.name, existingIndexName);
               _.pull(existingTable.indexes, existingIndexName);
-              yield this.saveDatabaseState(undefined, state);
+              yield this.saveDatabaseRecord(undefined, record);
             }
           }
         }
       }
 
       // Find out removed tables
-      for (var i = 0; i < state.tables.length; i++) {
-        var existingTable = state.tables[i];
+      for (var i = 0; i < record.tables.length; i++) {
+        var existingTable = record.tables[i];
         if (existingTable.hasBeenRemoved) continue;
         var table =  _.find(this.tables, 'name', existingTable.name);
         if (!table) {
@@ -210,7 +210,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
           }
           existingTable.indexes.length = 0;
           existingTable.hasBeenRemoved = true;
-          yield this.saveDatabaseState(undefined, state);
+          yield this.saveDatabaseRecord(undefined, record);
           log.info("Table '" + existingTable.name + "' (database '" + this.name + "') marked as removed");
         }
       }
@@ -269,9 +269,9 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     var tablesCount = 0;
     var removedTablesCount = 0;
     var indexesCount = 0;
-    var state = yield this.loadDatabaseState(undefined, false);
-    if (state) {
-      state.tables.forEach(function(table) {
+    var record = yield this.loadDatabaseRecord(undefined, false);
+    if (record) {
+      record.tables.forEach(function(table) {
         if (!table.hasBeenRemoved) {
           tablesCount++;
         } else {
