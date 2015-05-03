@@ -299,7 +299,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     yield this.store.delRange({ prefix: this.name });
   };
 
-  this.close = function *() {
+  this.closeDatabase = function *() {
     yield this.store.close();
   };
 
