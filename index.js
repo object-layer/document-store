@@ -246,11 +246,6 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     yield this.store.delRange({ prefix: prefix });
   };
 
-  this._removeTable = function *(tableName) { // used by kinda-object-db
-    var prefix = [this.name, tableName];
-    yield this.store.delRange({ prefix: prefix });
-  };
-
   this.transaction = function *(fn, options) {
     if (this.isInsideTransaction()) return yield fn(this);
     yield this.initializeDatabase();
@@ -289,6 +284,25 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
         pairsCount: storePairsCount
       }
     };
+  };
+
+  this.removeTablesMarkedAsRemoved = function *() {
+    var record = yield this.loadDatabaseRecord();
+    var tableNames = _.pluck(record.tables, 'name');
+    for (var i = 0; i < tableNames.length; i++) {
+      var tableName = tableNames[i];
+      var table = _.find(record.tables, 'name', tableName);
+      if (!table.hasBeenRemoved) continue;
+      yield this._removeTable(tableName);
+      _.pull(record.tables, table);
+      yield this.saveDatabaseRecord(undefined, record);
+      log.info("Table '" + tableName + "' (database '" + this.name + "') permanently removed");
+    }
+  };
+
+  this._removeTable = function *(tableName) {
+    var prefix = [this.name, tableName];
+    yield this.store.delRange({ prefix: prefix });
   };
 
   this.destroyDatabase = function *() {

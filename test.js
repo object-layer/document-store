@@ -77,6 +77,11 @@ suite('KindaDB', function() {
         stats = yield db.getStatistics();
         assert.strictEqual(stats.tablesCount, 1);
         assert.strictEqual(stats.removedTablesCount, 1);
+
+        yield db.removeTablesMarkedAsRemoved();
+        stats = yield db.getStatistics();
+        assert.strictEqual(stats.tablesCount, 1);
+        assert.strictEqual(stats.removedTablesCount, 0);
       } finally {
         yield db.destroyDatabase();
       }
