@@ -35,6 +35,10 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     plugin.plug(this);
   };
 
+  this.getStore = function() {
+    return this.store;
+  };
+
   // === Database ====
 
   this.initializeDatabase = function *() {
