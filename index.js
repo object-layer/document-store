@@ -466,16 +466,18 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     table = this.normalizeTable(table);
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
+    var hasBeenDeleted = false;
     yield this.initializeDatabase();
     yield this.transaction(function *(tr) {
       var itemKey = tr.makeItemKey(table, key);
       var oldItem = yield tr.store.get(itemKey, options);
       if (oldItem) {
-        yield tr.store.del(itemKey, options);
+        hasBeenDeleted = yield tr.store.del(itemKey, options);
         yield tr.updateIndexes(table, key, oldItem, undefined);
         yield tr.emitAsync('didDeleteItem', table, key, oldItem, options);
       }
     });
+    return hasBeenDeleted;
   };
 
   // Options:
@@ -616,9 +618,14 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     options = this.normalizeOptions(options);
     options = _.clone(options);
     options.properties = [];
+    var deletedItemsCount = 0;
     yield this.forEachItems(table, options, function *(value, key) {
-      yield this.deleteItem(table, key, { errorIfMissing: false });
+      var hasBeenDeleted = yield this.deleteItem(
+        table, key, { errorIfMissing: false }
+      );
+      if (hasBeenDeleted) deletedItemsCount++;
     }, this);
+    return deletedItemsCount;
   };
 
   // === Helpers ====

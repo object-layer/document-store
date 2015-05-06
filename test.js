@@ -148,9 +148,12 @@ suite('KindaDB', function() {
       yield db.putItem('Users', 'mvila', { firstName: 'Manu', age: 42 });
       var user = yield db.getItem('Users', 'mvila');
       assert.deepEqual(user, { firstName: 'Manu', age: 42 });
-      yield db.deleteItem('Users', 'mvila');
+      var hasBeenDeleted = yield db.deleteItem('Users', 'mvila');
+      assert.isTrue(hasBeenDeleted);
       var user = yield db.getItem('Users', 'mvila', { errorIfMissing: false });
       assert.isUndefined(user);
+      hasBeenDeleted = yield db.deleteItem('Users', 'mvila', { errorIfMissing: false });
+      assert.isFalse(hasBeenDeleted);
     });
   }); // simple database suite
 
@@ -403,10 +406,13 @@ suite('KindaDB', function() {
 
     test('find and delete items', function *() {
       var options = { query: { country: 'France' }, batchSize: 2 };
-      yield db.findAndDeleteItems('People', options);
+      var deletedItemsCount = yield db.findAndDeleteItems('People', options);
+      assert.strictEqual(deletedItemsCount, 3);
       var items = yield db.findItems('People');
       var keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['bbb', 'ccc', 'fff']);
+      deletedItemsCount = yield db.findAndDeleteItems('People', options);
+      assert.strictEqual(deletedItemsCount, 0);
     });
 
     test('change an item inside a transaction', function *() {

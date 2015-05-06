@@ -21,7 +21,7 @@
     "kinda-config": "^0.2.2",
     "kinda-log": "^0.1.8",
     "kinda-object": "^0.1.0",
-    "kinda-store": "^0.1.0",
+    "kinda-store": "^0.1.12",
     "kinda-util": "^0.1.6",
     "lodash": "^3.5.0"
   },
