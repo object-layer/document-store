@@ -2,6 +2,7 @@
 
 let _ = require('lodash');
 let KindaObject = require('kinda-object');
+let util = require('kinda-util').create();
 
 let Table = KindaObject.extend('Table', function() {
   this.creator = function(options = {}) {
@@ -87,8 +88,8 @@ let Table = KindaObject.extend('Table', function() {
       if (_.isString(property)) { // simple index
         return { key: property, value: true };
       } else if (_.isFunction(property)) { // computed index
-        let key = property.name || property.displayName;
-        if (!key) throw new Error('invalid index definition: computed index function cannot be anonymous. Use a named function or set the displayName function property.');
+        let key = util.getFunctionName(property);
+        if (key === 'anonymous') throw new Error('invalid index definition: computed index function cannot be anonymous. Use a named function or set the displayName function property.');
         return { key, value: property };
       } else {
         throw new Error('invalid index definition');
