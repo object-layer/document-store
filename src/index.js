@@ -1,42 +1,40 @@
-"use strict";
+'use strict';
 
-var _ = require('lodash');
-var wait = require('co-wait');
-var KindaObject = require('kinda-object');
-var config = require('kinda-config').get('kinda-db');
-var log = require('kinda-log').create();
-var util = require('kinda-util').create();
-var Store = require('kinda-store');
-var Table = require('./table');
+let _ = require('lodash');
+let wait = require('co-wait');
+let KindaObject = require('kinda-object');
+let KindaEventManager = require('kinda-event-manager');
+let util = require('kinda-util').create();
+let KindaLog = require('kinda-log');
+let Store = require('kinda-store');
+let Table = require('./table');
 
-var VERSION = 2;
+let VERSION = 2;
 
-var KindaDB = KindaObject.extend('KindaDB', function() {
-  this.setCreator(function(name, url, tables, options) {
-    if (!name) name = config.name;
-    if (!name) throw new Error('name is missing');
-    if (!url) url = config.url;
-    if (!url) throw new Error('url is missing');
-    if (!tables) tables = config.tables || [];
-    if (!options) options = config.options || {};
-    this.name = name;
-    this.store = Store.create(url);
-    this.database = this;
+let KindaDB = KindaObject.extend('KindaDB', function() {
+  this.include(KindaEventManager);
+
+  this.creator = function(options = {}) {
+    if (!options.name) throw new Error('database name is missing');
+    if (!options.url) throw new Error('database url is missing');
+
+    let log = options.log;
+    if (!KindaLog.isClassOf(log)) log = KindaLog.create(log);
+    this.log = log;
+
+    this.name = options.name;
+    this.store = Store.create({ url: options.url });
     this.tables = [];
-    tables.forEach(function(table) {
+    (options.tables || []).forEach(table => {
       if (_.isString(table)) table = { name: table };
-      var name = table.name;
-      var options = _.omit(table, 'name');
-      this.addTable(name, options);
-    }, this);
-  });
+      this.addTable(table);
+    });
+
+    this.database = this;
+  };
 
   this.use = function(plugin) {
     plugin.plug(this);
-  };
-
-  this.getStore = function() {
-    return this.store;
   };
 
   // === Database ====
@@ -49,7 +47,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     }
     this.isInitializing = true;
     try {
-      var hasBeenCreated = yield this.createDatabaseIfDoesNotExist();
+      let hasBeenCreated = yield this.createDatabaseIfDoesNotExist();
       if (!hasBeenCreated) {
         yield this.lockDatabase();
         try {
@@ -70,68 +68,68 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   this.loadDatabaseRecord = function *(tr, errorIfMissing) {
     if (!tr) tr = this.store;
     if (errorIfMissing == null) errorIfMissing = true;
-    return yield tr.get([this.name], { errorIfMissing: errorIfMissing });
+    return yield tr.get([this.name], { errorIfMissing });
   };
 
   this.saveDatabaseRecord = function *(record, tr, errorIfExists) {
     if (!tr) tr = this.store;
     yield tr.put([this.name], record, {
-      errorIfExists: errorIfExists,
+      errorIfExists,
       createIfMissing: !errorIfExists
     });
   };
 
   this.createDatabaseIfDoesNotExist = function *() {
-    var hasBeenCreated = false;
+    let hasBeenCreated = false;
     yield this.store.transaction(function *(tr) {
-      var record = yield this.loadDatabaseRecord(tr, false);
+      let record = yield this.loadDatabaseRecord(tr, false);
       if (!record) {
-        var tables = this.tables.map(function(table) {
+        let tables = this.tables.map(table => {
           return {
             name: table.name,
             indexes: _.pluck(table.indexes, 'name')
-          }
+          };
         });
         record = {
           name: this.name,
           version: VERSION,
-          tables: tables
+          tables
         };
         yield this.saveDatabaseRecord(record, tr, true);
         hasBeenCreated = true;
         yield this.emitAsync('didCreate', tr);
-        log.info("Database '" + this.name + "' created");
+        this.log.info(`Database '${this.name}' created`);
       }
     }.bind(this));
     return hasBeenCreated;
   };
 
   this.lockDatabase = function *() {
-    var hasBeenLocked = false;
+    let hasBeenLocked = false;
     while (!hasBeenLocked) {
       yield this.store.transaction(function *(tr) {
-        var record = yield this.loadDatabaseRecord(tr);
+        let record = yield this.loadDatabaseRecord(tr);
         if (!record.isLocked) {
           record.isLocked = hasBeenLocked = true;
           yield this.saveDatabaseRecord(record, tr);
         }
       }.bind(this));
       if (!hasBeenLocked) {
-        log.info("Waiting Database '" + this.name + "'...");
+        this.log.info(`Waiting database '${this.name}'...`);
         yield wait(5000); // wait 5 secs before retrying
       }
     }
   };
 
   this.unlockDatabase = function *() {
-    var record = yield this.loadDatabaseRecord();
+    let record = yield this.loadDatabaseRecord();
     record.isLocked = false;
     yield this.saveDatabaseRecord(record);
   };
 
   this.upgradeDatabase = function *() {
-    var record = yield this.loadDatabaseRecord();
-    var version = record.version;
+    let record = yield this.loadDatabaseRecord();
+    let version = record.version;
 
     if (version === VERSION) return;
 
@@ -143,14 +141,14 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
 
     if (version < 2) {
       delete record.lastMigrationNumber;
-      record.tables.forEach(function(table) {
+      record.tables.forEach(table => {
         table.indexes = _.pluck(table.indexes, 'name');
       });
     }
 
     record.version = VERSION;
     yield this.saveDatabaseRecord(record);
-    log.info("Database '" + this.name + "' upgraded to version " + VERSION);
+    this.log.info(`Database '${this.name}' upgraded to version ${VERSION}`);
 
     this.emit('upgradeDidStop');
   };
@@ -159,13 +157,12 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     // ...
   };
 
-  this.migrateDatabase = function *(transaction) {
-    var record = yield this.loadDatabaseRecord();
+  this.migrateDatabase = function *() {
+    let record = yield this.loadDatabaseRecord();
     try {
       // Find out added or updated tables
-      for (var i = 0; i < this.tables.length; i++) {
-        var table = this.tables[i];
-        var existingTable = _.find(record.tables, 'name', table.name);
+      for (let table of this.tables) {
+        let existingTable = _.find(record.tables, 'name', table.name);
         if (!existingTable) {
           this._emitMigrationDidStart();
           record.tables.push({
@@ -173,13 +170,12 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
             indexes: _.pluck(table.indexes, 'name')
           });
           yield this.saveDatabaseRecord(record);
-          log.info("Table '" + table.name + "' (database '" + this.name + "') added");
+          this.log.info(`Table '${table.name}' (database '${this.name}') added`);
         } else if (existingTable.hasBeenRemoved) {
           throw new Error('adding a table that has been removed is not implemented yet');
         } else {
           // Find out added indexes
-          for (var j = 0; j < table.indexes.length; j++) {
-            var index = table.indexes[j];
+          for (let index of table.indexes) {
             if (!_.contains(existingTable.indexes, index.name)) {
               this._emitMigrationDidStart();
               yield this._addIndex(table, index);
@@ -188,9 +184,8 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
             }
           }
           // Find out removed indexes
-          var existingIndexNames = _.clone(existingTable.indexes);
-          for (var j = 0; j < existingIndexNames.length; j++) {
-            var existingIndexName = existingIndexNames[j];
+          let existingIndexNames = _.clone(existingTable.indexes);
+          for (let existingIndexName of existingIndexNames) {
             if (!_.find(table.indexes, 'name', existingIndexName)) {
               this._emitMigrationDidStart();
               yield this._removeIndex(table.name, existingIndexName);
@@ -202,20 +197,18 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
       }
 
       // Find out removed tables
-      for (var i = 0; i < record.tables.length; i++) {
-        var existingTable = record.tables[i];
+      for (let existingTable of record.tables) {
         if (existingTable.hasBeenRemoved) continue;
-        var table =  _.find(this.tables, 'name', existingTable.name);
+        let table = _.find(this.tables, 'name', existingTable.name);
         if (!table) {
           this._emitMigrationDidStart();
-          for (var j = 0; j < existingTable.indexes.length; j++) {
-            var existingIndexName = existingTable.indexes[j];
+          for (let existingIndexName of existingTable.indexes) {
             yield this._removeIndex(existingTable.name, existingIndexName);
           }
           existingTable.indexes.length = 0;
           existingTable.hasBeenRemoved = true;
           yield this.saveDatabaseRecord(record);
-          log.info("Table '" + existingTable.name + "' (database '" + this.name + "') marked as removed");
+          this.log.info(`Table '${existingTable.name}' (database '${this.name}') marked as removed`);
         }
       }
     } finally {
@@ -238,23 +231,23 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this._addIndex = function *(table, index) {
-    log.info("Adding index '" + index.name + "' (database '" + this.name + "', table '" + table.name + "')...");
+    this.log.info(`Adding index '${index.name}' (database '${this.name}', table '${table.name}')...`);
     yield this.forEachItems(table, {}, function *(item, key) {
       yield this.updateIndex(table, key, undefined, item, index);
     }, this);
   };
 
   this._removeIndex = function *(tableName, indexName) {
-    log.info("Removing index '" + indexName + "' (database '" + this.name + "', table '" + tableName + "')...");
-    var prefix = [this.name, this.makeIndexTableName(tableName, indexName)];
-    yield this.store.delRange({ prefix: prefix });
+    this.log.info(`Removing index '${indexName}' (database '${this.name}', table '${tableName}')...`);
+    let prefix = [this.name, this.makeIndexTableName(tableName, indexName)];
+    yield this.store.delRange({ prefix });
   };
 
   this.transaction = function *(fn, options) {
     if (this.isInsideTransaction()) return yield fn(this);
     yield this.initializeDatabase();
     return yield this.store.transaction(function *(tr) {
-      var transaction = Object.create(this);
+      let transaction = Object.create(this);
       transaction.store = tr;
       return yield fn(transaction);
     }.bind(this), options);
@@ -265,12 +258,12 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this.getStatistics = function *() {
-    var tablesCount = 0;
-    var removedTablesCount = 0;
-    var indexesCount = 0;
-    var record = yield this.loadDatabaseRecord(undefined, false);
+    let tablesCount = 0;
+    let removedTablesCount = 0;
+    let indexesCount = 0;
+    let record = yield this.loadDatabaseRecord(undefined, false);
     if (record) {
-      record.tables.forEach(function(table) {
+      record.tables.forEach(table => {
         if (!table.hasBeenRemoved) {
           tablesCount++;
         } else {
@@ -279,11 +272,11 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
         indexesCount += table.indexes.length;
       });
     }
-    var storePairsCount = yield this.store.getCount({ prefix: this.name });
+    let storePairsCount = yield this.store.getCount({ prefix: this.name });
     return {
-      tablesCount: tablesCount,
-      removedTablesCount: removedTablesCount,
-      indexesCount: indexesCount,
+      tablesCount,
+      removedTablesCount,
+      indexesCount,
       store: {
         pairsCount: storePairsCount
       }
@@ -291,22 +284,22 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this.removeTablesMarkedAsRemoved = function *() {
-    var record = yield this.loadDatabaseRecord();
-    var tableNames = _.pluck(record.tables, 'name');
-    for (var i = 0; i < tableNames.length; i++) {
-      var tableName = tableNames[i];
-      var table = _.find(record.tables, 'name', tableName);
+    let record = yield this.loadDatabaseRecord();
+    let tableNames = _.pluck(record.tables, 'name');
+    for (let i = 0; i < tableNames.length; i++) {
+      let tableName = tableNames[i];
+      let table = _.find(record.tables, 'name', tableName);
       if (!table.hasBeenRemoved) continue;
       yield this._removeTable(tableName);
       _.pull(record.tables, table);
       yield this.saveDatabaseRecord(record);
-      log.info("Table '" + tableName + "' (database '" + this.name + "') permanently removed");
+      this.log.info(`Table '${tableName}' (database '${this.name}') permanently removed`);
     }
   };
 
   this._removeTable = function *(tableName) {
-    var prefix = [this.name, tableName];
-    yield this.store.delRange({ prefix: prefix });
+    let prefix = [this.name, tableName];
+    yield this.store.delRange({ prefix });
   };
 
   this.destroyDatabase = function *() {
@@ -325,19 +318,19 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
 
   this.getTable = function(name, errorIfMissing) {
     if (errorIfMissing == null) errorIfMissing = true;
-    var table = _.find(this.tables, 'name', name);
+    let table = _.find(this.tables, 'name', name);
     if (!table && errorIfMissing) {
-      throw new Error("Table '" + table.name + "' (database '" + this.name + "') is missing");
+      throw new Error(`Table '${table.name}' (database '${this.name}') is missing`);
     }
     return table;
   };
 
-  this.addTable = function(name, options) {
-    var table = this.getTable(name, false);
+  this.addTable = function(options = {}) {
+    let table = this.getTable(options.name, false);
     if (table) {
-      throw new Error("Table '" + name + "' (database '" + this.name + "') already exists");
+      throw new Error(`Table '${options.name}' (database '${this.name}') already exists`);
     }
-    table = Table.create(name, options);
+    table = Table.create(options);
     this.tables.push(table);
   };
 
@@ -349,19 +342,19 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   // === Indexes ====
 
   this.updateIndexes = function *(table, key, oldItem, newItem) {
-    for (var i = 0; i < table.indexes.length; i++) {
-      var index = table.indexes[i];
+    for (let i = 0; i < table.indexes.length; i++) {
+      let index = table.indexes[i];
       yield this.updateIndex(table, key, oldItem, newItem, index);
     }
   };
 
   this.updateIndex = function *(table, key, oldItem, newItem, index) {
-    var flattenedOldItem = util.flattenObject(oldItem);
-    var flattenedNewItem = util.flattenObject(newItem);
-    var oldValues = [];
-    var newValues = [];
-    index.properties.forEach(function(property) {
-      var oldValue, newValue;
+    let flattenedOldItem = util.flattenObject(oldItem);
+    let flattenedNewItem = util.flattenObject(newItem);
+    let oldValues = [];
+    let newValues = [];
+    index.properties.forEach(property => {
+      let oldValue, newValue;
       if (property.value === true) { // simple index
         oldValue = oldItem && flattenedOldItem[property.key];
         newValue = newItem && flattenedNewItem[property.key];
@@ -372,37 +365,36 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
       oldValues.push(oldValue);
       newValues.push(newValue);
     });
-    var oldProjection;
-    var newProjection;
+    let oldProjection;
+    let newProjection;
     if (index.projection) {
-      index.projection.forEach(function(key) {
-        var val = flattenedOldItem[key];
+      index.projection.forEach(k => {
+        let val = flattenedOldItem[k];
         if (val != null) {
           if (!oldProjection) oldProjection = {};
-          oldProjection[key] = val;
+          oldProjection[k] = val;
         }
-        val = flattenedNewItem[key];
+        val = flattenedNewItem[k];
         if (val != null) {
           if (!newProjection) newProjection = {};
-          newProjection[key] = val;
+          newProjection[k] = val;
         }
-      }, this);
-    };
-    var valuesAreDifferent = !_.isEqual(oldValues, newValues);
-    var projectionIsDifferent = !_.isEqual(oldProjection, newProjection);
+      });
+    }
+    let valuesAreDifferent = !_.isEqual(oldValues, newValues);
+    let projectionIsDifferent = !_.isEqual(oldProjection, newProjection);
     if (valuesAreDifferent && !_.contains(oldValues, undefined)) {
-      var indexKey = this.makeIndexKey(table, index, oldValues, key);
+      let indexKey = this.makeIndexKey(table, index, oldValues, key);
       yield this.store.del(indexKey);
-    };
-    if ((valuesAreDifferent || projectionIsDifferent)
-      && !_.contains(newValues, undefined)) {
-      var indexKey = this.makeIndexKey(table, index, newValues, key);
+    }
+    if ((valuesAreDifferent || projectionIsDifferent) && !_.contains(newValues, undefined)) {
+      let indexKey = this.makeIndexKey(table, index, newValues, key);
       yield this.store.put(indexKey, newProjection);
-    };
+    }
   };
 
   this.makeIndexKey = function(table, index, values, key) {
-    var indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
+    let indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
     indexKey.push.apply(indexKey, values);
     indexKey.push(key);
     return indexKey;
@@ -414,11 +406,11 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
 
   this.makeIndexKeyForQuery = function(table, index, query) {
     if (!query) query = {};
-    var indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
-    var keys = _.pluck(index.properties, 'key');
-    var queryKeys = _.keys(query);
-    for (var i = 0; i < queryKeys.length; i++) {
-      var key = keys[i];
+    let indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
+    let keys = _.pluck(index.properties, 'key');
+    let queryKeys = _.keys(query);
+    for (let i = 0; i < queryKeys.length; i++) {
+      let key = keys[i];
       indexKey.push(query[key]);
     }
     return indexKey;
@@ -436,7 +428,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
     yield this.initializeDatabase();
-    var item = yield this.store.get(this.makeItemKey(table, key), options);
+    let item = yield this.store.get(this.makeItemKey(table, key), options);
     return item;
   };
 
@@ -452,8 +444,8 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     options = this.normalizeOptions(options);
     yield this.initializeDatabase();
     yield this.transaction(function *(tr) {
-      var itemKey = tr.makeItemKey(table, key);
-      var oldItem = yield tr.store.get(itemKey, { errorIfMissing: false });
+      let itemKey = tr.makeItemKey(table, key);
+      let oldItem = yield tr.store.get(itemKey, { errorIfMissing: false });
       yield tr.store.put(itemKey, item, options);
       yield tr.updateIndexes(table, key, oldItem, item);
       yield tr.emitAsync('didPutItem', table, key, item, options);
@@ -466,11 +458,11 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     table = this.normalizeTable(table);
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
-    var hasBeenDeleted = false;
+    let hasBeenDeleted = false;
     yield this.initializeDatabase();
     yield this.transaction(function *(tr) {
-      var itemKey = tr.makeItemKey(table, key);
-      var oldItem = yield tr.store.get(itemKey, options);
+      let itemKey = tr.makeItemKey(table, key);
+      let oldItem = yield tr.store.get(itemKey, options);
       if (oldItem) {
         hasBeenDeleted = yield tr.store.del(itemKey, options);
         yield tr.updateIndexes(table, key, oldItem, undefined);
@@ -485,20 +477,17 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   //     an array of property name. Default: '*'. TODO
   this.getItems = function *(table, keys, options) {
     table = this.normalizeTable(table);
-    if (!_.isArray(keys))
-      throw new Error('invalid keys (should be an array)');
+    if (!_.isArray(keys)) throw new Error('invalid keys (should be an array)');
     if (!keys.length) return [];
     keys = keys.map(this.normalizeKey, this);
     options = this.normalizeOptions(options);
-    var itemKeys = keys.map(function(key) {
-      return this.makeItemKey(table, key)
-    }, this);
+    let itemKeys = keys.map(key => this.makeItemKey(table, key));
     options = _.clone(options);
     options.returnValues = options.properties === '*' || options.properties.length;
     yield this.initializeDatabase();
-    var items = yield this.store.getMany(itemKeys, options);
-    items = items.map(function(item) {
-      var res = { key: _.last(item.key) };
+    let items = yield this.store.getMany(itemKeys, options);
+    items = items.map(item => {
+      let res = { key: _.last(item.key) };
       if (options.returnValues) res.value = item.value;
       return res;
     });
@@ -519,15 +508,16 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   this.findItems = function *(table, options) {
     table = this.normalizeTable(table);
     options = this.normalizeOptions(options);
-    if (!_.isEmpty(options.query) || !_.isEmpty(options.order))
+    if (!_.isEmpty(options.query) || !_.isEmpty(options.order)) {
       return yield this._findItemsWithIndex(table, options);
+    }
     options = _.clone(options);
     options.prefix = [this.name, table.name];
     options.returnValues = options.properties === '*' || options.properties.length;
     yield this.initializeDatabase();
-    var items = yield this.store.getRange(options);
-    items = items.map(function(item) {
-      var res = { key: _.last(item.key) };
+    let items = yield this.store.getRange(options);
+    items = items.map(item => {
+      let res = { key: _.last(item.key) };
       if (options.returnValues) res.value = item.value;
       return res;
     });
@@ -535,16 +525,16 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this._findItemsWithIndex = function *(table, options) {
-    var index = table.findIndexForQueryAndOrder(options.query, options.order);
+    let index = table.findIndexForQueryAndOrder(options.query, options.order);
 
-    var fetchItem = options.properties === '*';
-    var useProjection = false;
+    let fetchItem = options.properties === '*';
+    let useProjection = false;
     if (!fetchItem && options.properties.length) {
-      var diff = _.difference(options.properties, index.projection);
+      let diff = _.difference(options.properties, index.projection);
       useProjection = diff.length === 0;
       if (!useProjection) {
         fetchItem = true;
-        log.debug('an index projection doesn\'t satisfy requested properties, full item will be fetched');
+        this.log.debug('an index projection doesn\'t satisfy requested properties, full item will be fetched');
       }
     }
 
@@ -553,15 +543,15 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     options.returnValues = useProjection;
 
     yield this.initializeDatabase();
-    var items = yield this.store.getRange(options);
-    items = items.map(function(item) {
-      var res = { key: _.last(item.key) };
+    let items = yield this.store.getRange(options);
+    items = items.map(item => {
+      let res = { key: _.last(item.key) };
       if (useProjection) res.value = item.value;
       return res;
     });
 
     if (fetchItem) {
-      var keys = _.pluck(items, 'key');
+      let keys = _.pluck(items, 'key');
       items = yield this.getItems(table, keys, { errorIfMissing: false });
     }
 
@@ -572,8 +562,9 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   this.countItems = function *(table, options) {
     table = this.normalizeTable(table);
     options = this.normalizeOptions(options);
-    if (!_.isEmpty(options.query) || !_.isEmpty(options.order))
+    if (!_.isEmpty(options.query) || !_.isEmpty(options.order)) {
       return yield this._countItemsWithIndex(table, options);
+    }
     options = _.clone(options);
     options.prefix = [this.name, table.name];
     yield this.initializeDatabase();
@@ -581,7 +572,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
   };
 
   this._countItemsWithIndex = function *(table, options) {
-    var index = table.findIndexForQueryAndOrder(options.query, options.order);
+    let index = table.findIndexForQueryAndOrder(options.query, options.order);
     options = _.clone(options);
     options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
     yield this.initializeDatabase();
@@ -600,16 +591,16 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     options = _.clone(options);
     options.limit = options.batchSize; // TODO: global 'limit' option
     while (true) {
-      var items = yield this.findItems(table, options);
+      let items = yield this.findItems(table, options);
       if (!items.length) break;
-      for (var i = 0; i < items.length; i++) {
-        var item = items[i];
+      for (let i = 0; i < items.length; i++) {
+        let item = items[i];
         yield fn.call(thisArg, item.value, item.key);
       }
-      var lastItem = _.last(items);
-      options.startAfter = this.makeOrderKey(table, lastItem.key, lastItem.value, options.order);
+      let lastItem = _.last(items);
+      options.startAfter = this.makeOrderKey(lastItem.key, lastItem.value, options.order);
       delete options.start;
-    };
+    }
   };
 
   // Options: same as forEachItems() without 'properties' attribute.
@@ -618,9 +609,9 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     options = this.normalizeOptions(options);
     options = _.clone(options);
     options.properties = [];
-    var deletedItemsCount = 0;
+    let deletedItemsCount = 0;
     yield this.forEachItems(table, options, function *(value, key) {
-      var hasBeenDeleted = yield this.deleteItem(
+      let hasBeenDeleted = yield this.deleteItem(
         table, key, { errorIfMissing: false }
       );
       if (hasBeenDeleted) deletedItemsCount++;
@@ -634,35 +625,31 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     return [this.name, table.name, key];
   };
 
-  this.makeOrderKey = function(table, key, value, order) {
-    if (!order) order = [];
-    var orderKey = [];
-    order.forEach(function(key) {
-      orderKey.push(value[key]);
-    }, this);
+  this.makeOrderKey = function(key, value, order = []) {
+    let orderKey = order.map(k => value[k]);
     orderKey.push(key);
     return orderKey;
   };
 
   this.normalizeKey = function(key) {
-    if (typeof key !== 'number' && typeof key !== 'string')
+    if (typeof key !== 'number' && typeof key !== 'string') {
       throw new Error('invalid key type');
-    if (!key)
+    }
+    if (!key) {
       throw new Error('key is null or empty');
+    }
     return key;
   };
 
   this.normalizeItem = function(item) {
-    if (!_.isObject(item)) {
-      throw new Error('invalid item type');
-    };
+    if (!_.isObject(item)) throw new Error('invalid item type');
     return item;
   };
 
   this.normalizeOptions = function(options) {
     if (!options) options = {};
     if (options.hasOwnProperty('returnValues')) {
-      log.debug("'returnValues' option is deprecated in KindaDB");
+      this.log.debug('\'returnValues\' option is deprecated in KindaDB');
     }
     if (!options.hasOwnProperty('properties')) {
       options.properties = '*';
@@ -673,7 +660,7 @@ var KindaDB = KindaObject.extend('KindaDB', function() {
     } else if (options.properties == null) {
       options.properties = [];
     } else {
-      throw new Error("invalid 'properties' option");
+      throw new Error('invalid \'properties\' option');
     }
     return options;
   };

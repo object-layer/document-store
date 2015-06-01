@@ -1,33 +1,36 @@
 {
   "name": "kinda-db",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "...",
   "repository": {
     "type": "git",
     "url": "git://github.com/kinda/kinda-db"
   },
-  "main": "index.js",
+  "main": "lib/index.js",
   "scripts": {
+    "compile": "babel src --out-dir lib",
+    "prepublish": "npm run compile",
     "release": "(git checkout --quiet master && test -z \"$(git status --porcelain)\" && npm version $npm_config_release_type && git push --follow-tags) || echo \"An error occured (unclean repository?)\"",
     "release-patch": "npm run release --release-type=patch",
     "release-minor": "npm run release --release-type=minor",
     "release-major": "npm run release --release-type=major",
-    "test": "mocha --harmony --ui tdd"
+    "test": "mocha --compilers js:babel/register --ui tdd"
   },
   "author": "Manuel Vila <mvila@3base.com>",
   "license": "MIT",
   "dependencies": {
     "co-wait": "0.0.0",
-    "kinda-config": "^0.2.2",
-    "kinda-log": "^0.1.8",
-    "kinda-object": "^0.1.0",
-    "kinda-store": "^0.1.12",
-    "kinda-util": "^0.1.6",
-    "lodash": "^3.5.0"
+    "kinda-event-manager": "^0.1.0",
+    "kinda-log": "^0.2.0",
+    "kinda-object": "^0.2.0",
+    "kinda-store": "^0.2.0",
+    "kinda-util": "^0.2.0",
+    "lodash": "^3.9.1"
   },
   "devDependencies": {
-    "chai": "^2.1.2",
+    "babel": "^5.4.7",
+    "chai": "^2.3.0",
     "co-mocha": "^1.1.0",
-    "mocha": "^2.2.1"
+    "mocha": "^2.2.5"
   }
 }

@@ -1,33 +1,28 @@
-"use strict";
+'use strict';
 
-var _ = require('lodash');
-var KindaObject = require('kinda-object');
-var util = require('kinda-util').create();
+let _ = require('lodash');
+let KindaObject = require('kinda-object');
 
-var Table = KindaObject.extend('Table', function() {
-  this.setCreator(function(name, options) {
-    if (!name) throw new Error('name is missing');
-    if (!options) options = {};
-    this.name = name;
+let Table = KindaObject.extend('Table', function() {
+  this.creator = function(options = {}) {
+    if (!options.name) throw new Error('table name is missing');
+    this.name = options.name;
     this.indexes = [];
-    (options.indexes || []).forEach(function(index) {
+    (options.indexes || []).forEach(index => {
       if (!_.isPlainObject(index)) index = { properties: index };
-      var properties = index.properties;
-      var options = _.omit(index, 'properties');
-      this.addIndex(properties, options);
-    }, this);
-  });
+      this.addIndex(index);
+    });
+  };
 
-  this.addIndex = function(properties, options) {
-    var properties = this.normalizeIndexProperties(properties);
-    if (!options) options = {};
-    var keys = _.pluck(properties, 'key');
+  this.addIndex = function(options = {}) {
+    let properties = this.normalizeIndexProperties(options.properties);
+    let keys = _.pluck(properties, 'key');
     if (this.findIndexIndex(keys) !== -1) {
       throw new Error('an index with the same keys already exists');
     }
-    var index = {
+    let index = {
       name: keys.join('+'),
-      properties: properties
+      properties
     };
     if (options.projection != null) index.projection = options.projection;
     this.indexes.push(index);
@@ -35,7 +30,7 @@ var Table = KindaObject.extend('Table', function() {
 
   this.findIndex = function(keys) {
     keys = this.normalizeKeys(keys);
-    var i = this.findIndexIndex(keys);
+    let i = this.findIndexIndex(keys);
     if (i === -1) throw new Error('index not found');
     return this.indexes[i];
   };
@@ -44,31 +39,31 @@ var Table = KindaObject.extend('Table', function() {
     if (!query) query = {};
     if (!order) order = [];
     order = this.normalizeKeys(order);
-    var queryKeys = _.keys(query);
-    var orderKeys = order;
-    var indexes = this.indexes;
+    let queryKeys = _.keys(query);
+    let orderKeys = order;
+    let indexes = this.indexes;
     if (queryKeys.length) {
-      indexes = _.filter(indexes, function(index) {
-        var keys = _.pluck(index.properties, 'key');
+      indexes = _.filter(indexes, idx => {
+        let keys = _.pluck(idx.properties, 'key');
         keys = _.take(keys, queryKeys.length);
         return _.difference(queryKeys, keys).length === 0;
       });
     }
-    var index = _.find(indexes, function(index) {
-      var keys = _.pluck(index.properties, 'key');
+    let index = _.find(indexes, idx => {
+      let keys = _.pluck(idx.properties, 'key');
       keys = _.drop(keys, queryKeys.length);
       return _.isEqual(keys, orderKeys);
     });
     if (!index) {
-      throw new Error('index not found (query=' + JSON.stringify(query) + ', order=' + JSON.stringify(order) + ')');
+      throw new Error(`index not found (query=${JSON.stringify(query)}, order=${JSON.stringify(order)})`);
     }
     return index;
   };
 
   this.findIndexIndex = function(keys) {
     keys = this.normalizeKeys(keys);
-    return _.findIndex(this.indexes, function(index) {
-      var indexKeys = _.pluck(index.properties, 'key');
+    return _.findIndex(this.indexes, index => {
+      let indexKeys = _.pluck(index.properties, 'key');
       return _.isEqual(indexKeys, keys);
     });
   };
@@ -79,21 +74,22 @@ var Table = KindaObject.extend('Table', function() {
   };
 
   this.normalizeIndex = function(indexOrKeys) {
-    if (_.isString(indexOrKeys) || _.isArray(indexOrKeys))
+    if (_.isString(indexOrKeys) || _.isArray(indexOrKeys)) {
       return this.findIndex(indexOrKeys);
-    else
+    } else {
       return indexOrKeys;
+    }
   };
 
   this.normalizeIndexProperties = function(properties) {
     if (!_.isArray(properties)) properties = [properties];
-    properties = properties.map(function(property) {
+    properties = properties.map(property => {
       if (_.isString(property)) { // simple index
         return { key: property, value: true };
       } else if (_.isFunction(property)) { // computed index
-        var key = property.name || property.displayName;
+        let key = property.name || property.displayName;
         if (!key) throw new Error('invalid index definition: computed index function cannot be anonymous. Use a named function or set the displayName function property.');
-        return { key: key, value: property };
+        return { key, value: property };
       } else {
         throw new Error('invalid index definition');
       }
