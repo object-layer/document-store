@@ -437,9 +437,9 @@ suite('KindaDB', function() {
     });
 
     test('change an item inside a transaction', function *() {
-      assert.isFalse(db.isInsideTransaction());
+      assert.isFalse(db.isInsideTransaction);
       yield db.transaction(function *(tr) {
-        assert.isTrue(tr.isInsideTransaction());
+        assert.isTrue(tr.isInsideTransaction);
         let innerItem = yield tr.getItem('People', 'aaa');
         assert.strictEqual(innerItem.firstName, 'Manuel');
         innerItem.firstName = 'Manu';
@@ -453,9 +453,9 @@ suite('KindaDB', function() {
 
     test('change an item inside an aborted transaction', function *() {
       try {
-        assert.isFalse(db.isInsideTransaction());
+        assert.isFalse(db.isInsideTransaction);
         yield db.transaction(function *(tr) {
-          assert.isTrue(tr.isInsideTransaction());
+          assert.isTrue(tr.isInsideTransaction);
           let innerItem = yield tr.getItem('People', 'aaa');
           assert.strictEqual(innerItem.firstName, 'Manuel');
           innerItem.firstName = 'Manu';
