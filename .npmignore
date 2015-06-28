@@ -1,2 +1,5 @@
-# ES6 source directory
+.eslintrc
+.npmignore
+.travis.yml
 src
+test.js
