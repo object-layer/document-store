@@ -31,6 +31,8 @@
     "babel": "^5.4.7",
     "chai": "^2.3.0",
     "co-mocha": "^1.1.0",
+    "eslint": "^1.0.0",
+    "eslint-config-kinda": "^0.2.0",
     "mocha": "^2.2.5"
   }
 }
