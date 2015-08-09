@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "babel": "^5.4.7",
+    "babel-eslint": "^4.0.5",
     "chai": "^2.3.0",
     "co-mocha": "^1.1.0",
     "eslint": "^1.0.0",
