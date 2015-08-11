@@ -20,8 +20,7 @@
   "author": "Manuel Vila <mvila@3base.com>",
   "license": "MIT",
   "dependencies": {
-    "co-wait": "0.0.0",
-    "kinda-event-manager": "^0.1.0",
+    "kinda-event-manager": "^0.2.0",
     "kinda-log": "^0.2.0",
     "kinda-object": "^0.3.0",
     "kinda-store": "^0.2.0",
@@ -32,7 +31,6 @@
     "babel": "^5.4.7",
     "babel-eslint": "^4.0.5",
     "chai": "^2.3.0",
-    "co-mocha": "^1.1.0",
     "eslint": "^1.0.0",
     "eslint-config-kinda": "^0.2.0",
     "mocha": "^2.2.5"

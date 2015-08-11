@@ -1,16 +1,15 @@
 'use strict';
 
-require('co-mocha');
 let assert = require('chai').assert;
 let _ = require('lodash');
 let util = require('kinda-util').create();
 let KindaDB = require('./src');
 
 suite('KindaDB', function() {
-  let catchError = function *(fn) {
+  let catchError = async function(fn) {
     let err;
     try {
-      yield fn();
+      await fn();
     } catch (e) {
       err = e;
     }
@@ -18,7 +17,7 @@ suite('KindaDB', function() {
   };
 
   suite('migrations', function() {
-    test('one empty table', function *() {
+    test('one empty table', async function() {
       let db, stats;
       try {
         db = KindaDB.create({
@@ -27,20 +26,20 @@ suite('KindaDB', function() {
           tables: [{ name: 'Table1' }]
         });
 
-        stats = yield db.getStatistics();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.store.pairsCount, 0);
 
-        yield db.initializeDatabase();
-        stats = yield db.getStatistics();
+        await db.initializeDatabase();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.store.pairsCount, 1);
       } finally {
-        yield db.destroyDatabase();
-        stats = yield db.getStatistics();
+        await db.destroyDatabase();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.store.pairsCount, 0);
       }
     });
 
-    test('one item in a table', function *() {
+    test('one item in a table', async function() {
       let db, stats;
       try {
         db = KindaDB.create({
@@ -48,15 +47,15 @@ suite('KindaDB', function() {
           url: 'mysql://test@localhost/test',
           tables: [{ name: 'Table1' }]
         });
-        yield db.putItem('Table1', 'aaa', { property1: 'value1' });
-        stats = yield db.getStatistics();
+        await db.putItem('Table1', 'aaa', { property1: 'value1' });
+        stats = await db.getStatistics();
         assert.strictEqual(stats.store.pairsCount, 2);
       } finally {
-        yield db.destroyDatabase();
+        await db.destroyDatabase();
       }
     });
 
-    test('one table added afterwards then removed', function *() {
+    test('one table added afterwards then removed', async function() {
       let db, stats;
       try {
         db = KindaDB.create({
@@ -64,8 +63,8 @@ suite('KindaDB', function() {
           url: 'mysql://test@localhost/test',
           tables: [{ name: 'Table1' }]
         });
-        yield db.initializeDatabase();
-        stats = yield db.getStatistics();
+        await db.initializeDatabase();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.tablesCount, 1);
 
         db = KindaDB.create({
@@ -73,8 +72,8 @@ suite('KindaDB', function() {
           url: 'mysql://test@localhost/test',
           tables: [{ name: 'Table1' }, { name: 'Table2' }]
         });
-        yield db.initializeDatabase();
-        stats = yield db.getStatistics();
+        await db.initializeDatabase();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.tablesCount, 2);
 
         db = KindaDB.create({
@@ -82,21 +81,21 @@ suite('KindaDB', function() {
           url: 'mysql://test@localhost/test',
           tables: [{ name: 'Table2' }]
         });
-        yield db.initializeDatabase();
-        stats = yield db.getStatistics();
+        await db.initializeDatabase();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.tablesCount, 1);
         assert.strictEqual(stats.removedTablesCount, 1);
 
-        yield db.removeTablesMarkedAsRemoved();
-        stats = yield db.getStatistics();
+        await db.removeTablesMarkedAsRemoved();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.tablesCount, 1);
         assert.strictEqual(stats.removedTablesCount, 0);
       } finally {
-        yield db.destroyDatabase();
+        await db.destroyDatabase();
       }
     });
 
-    test('one index added afterwards then removed', function *() {
+    test('one index added afterwards then removed', async function() {
       let db, stats;
       try {
         db = KindaDB.create({
@@ -104,8 +103,8 @@ suite('KindaDB', function() {
           url: 'mysql://test@localhost/test',
           tables: [{ name: 'Table1' }]
         });
-        yield db.putItem('Table1', 'aaa', { property1: 'value1' });
-        stats = yield db.getStatistics();
+        await db.putItem('Table1', 'aaa', { property1: 'value1' });
+        stats = await db.getStatistics();
         assert.strictEqual(stats.indexesCount, 0);
         assert.strictEqual(stats.store.pairsCount, 2);
 
@@ -114,13 +113,13 @@ suite('KindaDB', function() {
           url: 'mysql://test@localhost/test',
           tables: [{ name: 'Table1', indexes: ['property1'] }]
         });
-        yield db.initializeDatabase();
-        stats = yield db.getStatistics();
+        await db.initializeDatabase();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.indexesCount, 1);
         assert.strictEqual(stats.store.pairsCount, 3);
 
-        yield db.putItem('Table1', 'bbb', { property1: 'value2' });
-        stats = yield db.getStatistics();
+        await db.putItem('Table1', 'bbb', { property1: 'value2' });
+        stats = await db.getStatistics();
         assert.strictEqual(stats.store.pairsCount, 5);
 
         db = KindaDB.create({
@@ -128,12 +127,12 @@ suite('KindaDB', function() {
           url: 'mysql://test@localhost/test',
           tables: [{ name: 'Table1' }]
         });
-        yield db.initializeDatabase();
-        stats = yield db.getStatistics();
+        await db.initializeDatabase();
+        stats = await db.getStatistics();
         assert.strictEqual(stats.indexesCount, 0);
         assert.strictEqual(stats.store.pairsCount, 3);
       } finally {
-        yield db.destroyDatabase();
+        await db.destroyDatabase();
       }
     });
   }); // migrations suite
@@ -141,7 +140,7 @@ suite('KindaDB', function() {
   suite('simple database', function() {
     let db;
 
-    suiteSetup(function *() {
+    suiteSetup(async function() {
       db = KindaDB.create({
         name: 'Test',
         url: 'mysql://test@localhost/test',
@@ -149,11 +148,11 @@ suite('KindaDB', function() {
       });
     });
 
-    suiteTeardown(function *() {
-      yield db.destroyDatabase();
+    suiteTeardown(async function() {
+      await db.destroyDatabase();
     });
 
-    test('tables definition', function *() {
+    test('tables definition', async function() {
       assert.strictEqual(db.tables.length, 1);
 
       let table = db.tables[0];
@@ -161,15 +160,15 @@ suite('KindaDB', function() {
       assert.strictEqual(table.indexes.length, 0);
     });
 
-    test('put, get and delete some items', function *() {
-      yield db.putItem('Users', 'mvila', { firstName: 'Manu', age: 42 });
-      let user = yield db.getItem('Users', 'mvila');
+    test('put, get and delete some items', async function() {
+      await db.putItem('Users', 'mvila', { firstName: 'Manu', age: 42 });
+      let user = await db.getItem('Users', 'mvila');
       assert.deepEqual(user, { firstName: 'Manu', age: 42 });
-      let hasBeenDeleted = yield db.deleteItem('Users', 'mvila');
+      let hasBeenDeleted = await db.deleteItem('Users', 'mvila');
       assert.isTrue(hasBeenDeleted);
-      user = yield db.getItem('Users', 'mvila', { errorIfMissing: false });
+      user = await db.getItem('Users', 'mvila', { errorIfMissing: false });
       assert.isUndefined(user);
-      hasBeenDeleted = yield db.deleteItem('Users', 'mvila', { errorIfMissing: false });
+      hasBeenDeleted = await db.deleteItem('Users', 'mvila', { errorIfMissing: false });
       assert.isFalse(hasBeenDeleted);
     });
   }); // simple database suite
@@ -177,7 +176,7 @@ suite('KindaDB', function() {
   suite('rich database', function() {
     let db;
 
-    suiteSetup(function *() {
+    suiteSetup(async function() {
       db = KindaDB.create({
         name: 'Test',
         url: 'mysql://test@localhost/test',
@@ -201,47 +200,47 @@ suite('KindaDB', function() {
       });
     });
 
-    suiteTeardown(function *() {
-      yield db.destroyDatabase();
+    suiteTeardown(async function() {
+      await db.destroyDatabase();
     });
 
-    setup(function *() {
-      yield db.putItem('People', 'aaa', {
+    setup(async function() {
+      await db.putItem('People', 'aaa', {
         firstName: 'Manuel', lastName: 'Vila',
         age: 42, city: 'Paris', country: 'France'
       });
-      yield db.putItem('People', 'bbb', {
+      await db.putItem('People', 'bbb', {
         firstName: 'Jack', lastName: 'Daniel',
         age: 60, city: 'New York', country: 'USA'
       });
-      yield db.putItem('People', 'ccc', {
+      await db.putItem('People', 'ccc', {
         firstName: 'Bob', lastName: 'Cracker',
         age: 20, city: 'Los Angeles', country: 'USA'
       });
-      yield db.putItem('People', 'ddd', {
+      await db.putItem('People', 'ddd', {
         firstName: 'Vincent', lastName: 'Vila',
         age: 43, city: 'Céret', country: 'France'
       });
-      yield db.putItem('People', 'eee', {
+      await db.putItem('People', 'eee', {
         firstName: 'Pierre', lastName: 'Dupont',
         age: 39, city: 'Lyon', country: 'France'
       });
-      yield db.putItem('People', 'fff', {
+      await db.putItem('People', 'fff', {
         firstName: 'Jacques', lastName: 'Fleur',
         age: 39, city: 'San Francisco', country: 'USA'
       });
     });
 
-    teardown(function *() {
-      yield db.deleteItem('People', 'aaa', { errorIfMissing: false });
-      yield db.deleteItem('People', 'bbb', { errorIfMissing: false });
-      yield db.deleteItem('People', 'ccc', { errorIfMissing: false });
-      yield db.deleteItem('People', 'ddd', { errorIfMissing: false });
-      yield db.deleteItem('People', 'eee', { errorIfMissing: false });
-      yield db.deleteItem('People', 'fff', { errorIfMissing: false });
+    teardown(async function() {
+      await db.deleteItem('People', 'aaa', { errorIfMissing: false });
+      await db.deleteItem('People', 'bbb', { errorIfMissing: false });
+      await db.deleteItem('People', 'ccc', { errorIfMissing: false });
+      await db.deleteItem('People', 'ddd', { errorIfMissing: false });
+      await db.deleteItem('People', 'eee', { errorIfMissing: false });
+      await db.deleteItem('People', 'fff', { errorIfMissing: false });
     });
 
-    test('tables definition', function *() {
+    test('tables definition', async function() {
       assert.strictEqual(db.tables.length, 1);
       let table = db.tables[0];
       assert.strictEqual(table.name, 'People');
@@ -250,8 +249,8 @@ suite('KindaDB', function() {
       assert.strictEqual(table.indexes[0].properties[0].key, 'lastName');
     });
 
-    test('get many items', function *() {
-      let items = yield db.getItems('People', ['aaa', 'ccc']);
+    test('get many items', async function() {
+      let items = await db.getItems('People', ['aaa', 'ccc']);
       assert.strictEqual(items.length, 2);
       assert.strictEqual(items[0].key, 'aaa');
       assert.strictEqual(items[0].value.firstName, 'Manuel');
@@ -259,8 +258,8 @@ suite('KindaDB', function() {
       assert.strictEqual(items[1].value.firstName, 'Bob');
     });
 
-    test('find all items in a table', function *() {
-      let items = yield db.findItems('People');
+    test('find all items in a table', async function() {
+      let items = await db.findItems('People');
       assert.strictEqual(items.length, 6);
       assert.strictEqual(items[0].key, 'aaa');
       assert.strictEqual(items[0].value.firstName, 'Manuel');
@@ -268,103 +267,103 @@ suite('KindaDB', function() {
       assert.strictEqual(items[5].value.firstName, 'Jacques');
     });
 
-    test('find and order items', function *() {
-      let items = yield db.findItems('People', { order: 'age' });
+    test('find and order items', async function() {
+      let items = await db.findItems('People', { order: 'age' });
       assert.strictEqual(items.length, 6);
       assert.strictEqual(items[0].key, 'ccc');
       assert.strictEqual(items[0].value.age, 20);
       assert.strictEqual(items[5].key, 'bbb');
       assert.strictEqual(items[5].value.age, 60);
 
-      items = yield db.findItems('People', { order: 'age', reverse: true });
+      items = await db.findItems('People', { order: 'age', reverse: true });
       assert.strictEqual(items.length, 6);
       assert.strictEqual(items[0].key, 'bbb');
       assert.strictEqual(items[0].value.age, 60);
       assert.strictEqual(items[5].key, 'ccc');
       assert.strictEqual(items[5].value.age, 20);
 
-      let err = yield catchError(function *() {
-        yield db.findItems('People', { order: 'missingProperty' });
+      let err = await catchError(async function() {
+        await db.findItems('People', { order: 'missingProperty' });
       });
       assert.instanceOf(err, Error);
     });
 
-    test('find items with a query', function *() {
-      let items = yield db.findItems('People', { query: { country: 'France' } });
+    test('find items with a query', async function() {
+      let items = await db.findItems('People', { query: { country: 'France' } });
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
 
-      items = yield db.findItems('People', { query: { country: 'USA' } });
+      items = await db.findItems('People', { query: { country: 'USA' } });
       keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['bbb', 'ccc', 'fff']);
 
-      items = yield db.findItems('People', { query: { city: 'New York', country: 'USA' } });
+      items = await db.findItems('People', { query: { city: 'New York', country: 'USA' } });
       keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['bbb']);
 
-      items = yield db.findItems('People', { query: { country: 'Japan' } });
+      items = await db.findItems('People', { query: { country: 'Japan' } });
       assert.strictEqual(items.length, 0);
     });
 
-    test('find items with a query and an order', function *() {
-      let items = yield db.findItems('People', {
+    test('find items with a query and an order', async function() {
+      let items = await db.findItems('People', {
         query: { country: 'USA' }, order: 'city'
       });
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['ccc', 'bbb', 'fff']);
 
-      items = yield db.findItems('People', {
+      items = await db.findItems('People', {
         query: { country: 'USA' }, order: 'city', reverse: true
       });
       keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['fff', 'bbb', 'ccc']);
     });
 
-    test('find items after a specific item', function *() {
-      let items = yield db.findItems('People', {
+    test('find items after a specific item', async function() {
+      let items = await db.findItems('People', {
         query: { country: 'USA' }, order: 'city', start: 'New York'
       });
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['bbb', 'fff']);
 
-      items = yield db.findItems('People', {
+      items = await db.findItems('People', {
         query: { country: 'USA' }, order: 'city', startAfter: 'New York'
       });
       keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['fff']);
     });
 
-    test('find items before a specific item', function *() {
-      let items = yield db.findItems('People', {
+    test('find items before a specific item', async function() {
+      let items = await db.findItems('People', {
         query: { country: 'USA' }, order: 'city', end: 'New York'
       });
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['ccc', 'bbb']);
 
-      items = yield db.findItems('People', {
+      items = await db.findItems('People', {
         query: { country: 'USA' }, order: 'city', endBefore: 'New York'
       });
       keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['ccc']);
     });
 
-    test('find a limited number of items', function *() {
-      let items = yield db.findItems('People', {
+    test('find a limited number of items', async function() {
+      let items = await db.findItems('People', {
         query: { country: 'France' }, limit: 2
       });
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd']);
     });
 
-    test('find items using an index projection', function *() {
-      let items = yield db.findItems('People', {
+    test('find items using an index projection', async function() {
+      let items = await db.findItems('People', {
         query: { country: 'France' }, properties: ['firstName', 'lastName']
       });
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
       assert.deepEqual(items[0].value, { firstName: 'Manuel', lastName: 'Vila' });
 
-      items = yield db.findItems('People', { // will not use projection
+      items = await db.findItems('People', { // will not use projection
         query: { country: 'France' }, properties: ['firstName', 'lastName', 'age']
       });
       keys = _.pluck(items, 'key');
@@ -375,99 +374,99 @@ suite('KindaDB', function() {
       });
     });
 
-    test('find items using a computed index', function *() {
-      let items = yield db.findItems('People', { order: 'fullNameSortKey' });
+    test('find items using a computed index', async function() {
+      let items = await db.findItems('People', { order: 'fullNameSortKey' });
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['ccc', 'bbb', 'eee', 'fff', 'aaa', 'ddd']);
     });
 
-    test('count all items in a table', function *() {
-      let count = yield db.countItems('People');
+    test('count all items in a table', async function() {
+      let count = await db.countItems('People');
       assert.strictEqual(count, 6);
     });
 
-    test('count items with a query', function *() {
-      let count = yield db.countItems('People', {
+    test('count items with a query', async function() {
+      let count = await db.countItems('People', {
         query: { age: 39 }
       });
       assert.strictEqual(count, 2);
 
-      count = yield db.countItems('People', {
+      count = await db.countItems('People', {
         query: { country: 'France' }
       });
       assert.strictEqual(count, 3);
 
-      count = yield db.countItems('People', {
+      count = await db.countItems('People', {
         query: { country: 'France', city: 'Paris' }
       });
       assert.strictEqual(count, 1);
 
-      count = yield db.countItems('People', {
+      count = await db.countItems('People', {
         query: { country: 'Japan', city: 'Tokyo' }
       });
       assert.strictEqual(count, 0);
     });
 
-    test('iterate over items', function *() {
+    test('iterate over items', async function() {
       let keys = [];
-      yield db.forEachItems('People', { batchSize: 2 }, function *(value, key) {
+      await db.forEachItems('People', { batchSize: 2 }, async function(value, key) {
         keys.push(key);
       });
       assert.deepEqual(keys, ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff']);
     });
 
-    test('iterate over items in a specific order', function *() {
+    test('iterate over items in a specific order', async function() {
       let keys = [];
       let options = { order: ['lastName', 'firstName'], batchSize: 2 };
-      yield db.forEachItems('People', options, function *(value, key) {
+      await db.forEachItems('People', options, async function(value, key) {
         keys.push(key);
       });
       assert.deepEqual(keys, ['ccc', 'bbb', 'eee', 'fff', 'aaa', 'ddd']);
     });
 
-    test('find and delete items', function *() {
+    test('find and delete items', async function() {
       let options = { query: { country: 'France' }, batchSize: 2 };
-      let deletedItemsCount = yield db.findAndDeleteItems('People', options);
+      let deletedItemsCount = await db.findAndDeleteItems('People', options);
       assert.strictEqual(deletedItemsCount, 3);
-      let items = yield db.findItems('People');
+      let items = await db.findItems('People');
       let keys = _.pluck(items, 'key');
       assert.deepEqual(keys, ['bbb', 'ccc', 'fff']);
-      deletedItemsCount = yield db.findAndDeleteItems('People', options);
+      deletedItemsCount = await db.findAndDeleteItems('People', options);
       assert.strictEqual(deletedItemsCount, 0);
     });
 
-    test('change an item inside a transaction', function *() {
+    test('change an item inside a transaction', async function() {
       assert.isFalse(db.isInsideTransaction);
-      yield db.transaction(function *(tr) {
+      await db.transaction(async function(tr) {
         assert.isTrue(tr.isInsideTransaction);
-        let innerItem = yield tr.getItem('People', 'aaa');
+        let innerItem = await tr.getItem('People', 'aaa');
         assert.strictEqual(innerItem.firstName, 'Manuel');
         innerItem.firstName = 'Manu';
-        yield tr.putItem('People', 'aaa', innerItem);
-        innerItem = yield tr.getItem('People', 'aaa');
+        await tr.putItem('People', 'aaa', innerItem);
+        innerItem = await tr.getItem('People', 'aaa');
         assert.strictEqual(innerItem.firstName, 'Manu');
       });
-      let item = yield db.getItem('People', 'aaa');
+      let item = await db.getItem('People', 'aaa');
       assert.strictEqual(item.firstName, 'Manu');
     });
 
-    test('change an item inside an aborted transaction', function *() {
+    test('change an item inside an aborted transaction', async function() {
       try {
         assert.isFalse(db.isInsideTransaction);
-        yield db.transaction(function *(tr) {
+        await db.transaction(async function(tr) {
           assert.isTrue(tr.isInsideTransaction);
-          let innerItem = yield tr.getItem('People', 'aaa');
+          let innerItem = await tr.getItem('People', 'aaa');
           assert.strictEqual(innerItem.firstName, 'Manuel');
           innerItem.firstName = 'Manu';
-          yield tr.putItem('People', 'aaa', innerItem);
-          innerItem = yield tr.getItem('People', 'aaa');
+          await tr.putItem('People', 'aaa', innerItem);
+          innerItem = await tr.getItem('People', 'aaa');
           assert.strictEqual(innerItem.firstName, 'Manu');
           throw new Error('something wrong');
         });
       } catch (err) {
         // noop
       }
-      let item = yield db.getItem('People', 'aaa');
+      let item = await db.getItem('People', 'aaa');
       assert.strictEqual(item.firstName, 'Manuel');
     });
   }); // rich database suite
