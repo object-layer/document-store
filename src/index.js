@@ -9,6 +9,7 @@ let Store = require('kinda-store');
 let Table = require('./table');
 
 let VERSION = 2;
+const RESPIRATION_RATE = 250;
 
 let KindaDB = KindaObject.extend('KindaDB', function() {
   this.include(KindaEventManager);
@@ -485,14 +486,17 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
     let itemKeys = keys.map(key => this.makeItemKey(table, key));
     options = _.clone(options);
     options.returnValues = options.properties === '*' || options.properties.length;
+    let iterationsCount = 0;
     await this.initializeDatabase();
     let items = await this.store.getMany(itemKeys, options);
-    items = items.map(item => {
-      let res = { key: _.last(item.key) };
-      if (options.returnValues) res.value = item.value;
-      return res;
-    });
-    return items;
+    let finalItems = [];
+    for (let item of items) {
+      let finalItem = { key: _.last(item.key) };
+      if (options.returnValues) finalItem.value = item.value;
+      finalItems.push(finalItem);
+      if (++iterationsCount % RESPIRATION_RATE === 0) await util.timeout(0);
+    }
+    return finalItems;
   };
 
   // Options:
@@ -515,14 +519,17 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
     options = _.clone(options);
     options.prefix = [this.name, table.name];
     options.returnValues = options.properties === '*' || options.properties.length;
+    let iterationsCount = 0;
     await this.initializeDatabase();
     let items = await this.store.getRange(options);
-    items = items.map(item => {
-      let res = { key: _.last(item.key) };
-      if (options.returnValues) res.value = item.value;
-      return res;
-    });
-    return items;
+    let finalItems = [];
+    for (let item of items) {
+      let finalItem = { key: _.last(item.key) };
+      if (options.returnValues) finalItem.value = item.value;
+      finalItems.push(finalItem);
+      if (++iterationsCount % RESPIRATION_RATE === 0) await util.timeout(0);
+    }
+    return finalItems;
   };
 
   this._findItemsWithIndex = async function(table, options) {
@@ -543,13 +550,17 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
     options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
     options.returnValues = useProjection;
 
+    let iterationsCount = 0;
     await this.initializeDatabase();
     let items = await this.store.getRange(options);
-    items = items.map(item => {
-      let res = { key: _.last(item.key) };
-      if (useProjection) res.value = item.value;
-      return res;
-    });
+    let transformedItems = [];
+    for (let item of items) {
+      let transformedItem = { key: _.last(item.key) };
+      if (useProjection) transformedItem.value = item.value;
+      transformedItems.push(transformedItem);
+      if (++iterationsCount % RESPIRATION_RATE === 0) await util.timeout(0);
+    }
+    items = transformedItems;
 
     if (fetchItem) {
       let keys = _.pluck(items, 'key');
