@@ -1,5 +1,13 @@
-# kinda-db [![Build Status](https://travis-ci.org/kinda/kinda-db.svg?branch=master)](https://travis-ci.org/kinda/kinda-db)
+# document-store-layer [![Build Status](https://travis-ci.org/object-layer/document-store-layer.svg?branch=master)](https://travis-ci.org/object-layer/document-store-layer)
 
-```js
-// TODO: documentation!
+Document store on top of any database.
+
+## Documentation
+
+```javascript
+// TODO
 ```
+
+## License
+
+MIT

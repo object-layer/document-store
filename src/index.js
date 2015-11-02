@@ -1,61 +1,64 @@
 'use strict';
 
-let _ = require('lodash');
-let KindaObject = require('kinda-object');
-let KindaEventManager = require('kinda-event-manager');
-let util = require('kinda-util').create();
-let KindaLog = require('kinda-log');
-let Store = require('kinda-store');
-let Table = require('./table');
+import EventEmitter from 'event-emitter-mixin';
+import StoreLayer from 'store-layer';
+import sleep from 'sleep-promise';
+import setImmediatePromise from 'set-immediate-promise';
+import { flatten } from 'expand-flatten';
+import clone from 'lodash.clone';
+import difference from 'lodash.difference';
+import isEmpty from 'lodash.isempty';
+import isEqual from 'lodash.isequal';
+import last from 'lodash.last';
+import pull from 'lodash.pull';
+import Collection from './collection';
 
-let VERSION = 2;
+let VERSION = 3;
 const RESPIRATION_RATE = 250;
 
-let KindaDB = KindaObject.extend('KindaDB', function() {
-  this.include(KindaEventManager);
-
-  this.creator = function(options = {}) {
-    if (!options.name) throw new Error('database name is missing');
-    if (!options.url) throw new Error('database url is missing');
-
-    let log = options.log;
-    if (!KindaLog.isClassOf(log)) log = KindaLog.create(log);
-    this.log = log;
+@EventEmitter
+export class DocumentStoreLayer {
+  constructor(options = {}) {
+    if (!options.name) throw new Error('Document store name is missing');
+    if (!options.url) throw new Error('Document store URL is missing');
 
     this.name = options.name;
-    this.store = Store.create({ url: options.url });
-    this.tables = [];
-    (options.tables || []).forEach(table => {
-      if (_.isString(table)) table = { name: table };
-      this.addTable(table);
-    });
+    this.store = new StoreLayer(options.url);
 
-    this.database = this;
-  };
+    this.collections = [];
+    let collections = options.collections || [];
+    for (let collection of collections) {
+      this.addCollection(collection);
+    }
 
-  this.use = function(plugin) {
+    if (options.log) this.log = options.log;
+
+    this.root = this;
+  }
+
+  use(plugin) {
     plugin.plug(this);
-  };
+  }
 
-  // === Database ====
+  // === Document store ====
 
-  this.initializeDatabase = async function() {
+  async initializeDocumentStore() {
     if (this.hasBeenInitialized) return;
     if (this.isInitializing) return;
-    if (this.isInsideTransaction) {
-      throw new Error('cannot initialize the database inside a transaction');
+    if (this.insideTransaction) {
+      throw new Error('Cannot initialize the document store inside a transaction');
     }
     this.isInitializing = true;
     try {
-      let hasBeenCreated = await this.createDatabaseIfDoesNotExist();
+      let hasBeenCreated = await this.createDocumentStoreIfDoesNotExist();
       if (!hasBeenCreated) {
-        await this.lockDatabase();
+        await this.lockDocumentStore();
         try {
-          await this.upgradeDatabase();
-          await this.verifyDatabase();
-          await this.migrateDatabase();
+          await this.upgradeDocumentStore();
+          await this.verifyDocumentStore();
+          await this.migrateDocumentStore();
         } finally {
-          await this.unlockDatabase();
+          await this.unlockDocumentStore();
         }
       }
       this.hasBeenInitialized = true;
@@ -63,78 +66,68 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
     } finally {
       this.isInitializing = false;
     }
-  };
+  }
 
-  this.loadDatabaseRecord = async function(tr, errorIfMissing) {
-    if (!tr) tr = this.store;
-    if (errorIfMissing == null) errorIfMissing = true;
-    return await tr.get([this.name], { errorIfMissing });
-  };
-
-  this.saveDatabaseRecord = async function(record, tr, errorIfExists) {
-    if (!tr) tr = this.store;
-    await tr.put([this.name], record, {
-      errorIfExists,
-      createIfMissing: !errorIfExists
-    });
-  };
-
-  this.createDatabaseIfDoesNotExist = async function() {
+  async createDocumentStoreIfDoesNotExist() {
     let hasBeenCreated = false;
-    await this.store.transaction(async function(tr) {
-      let record = await this.loadDatabaseRecord(tr, false);
+    await this.store.transaction(async function(storeTransaction) {
+      let record = await this._loadDocumentStoreRecord(storeTransaction, false);
       if (!record) {
-        let tables = this.tables.map(table => {
+        let collections = this.collections.map(collection => {
           return {
-            name: table.name,
-            indexes: _.pluck(table.indexes, 'name')
+            name: collection.name,
+            indexes: collection.indexes.map(index => index.name)
           };
         });
         record = {
           name: this.name,
           version: VERSION,
-          tables
+          collections
         };
-        await this.saveDatabaseRecord(record, tr, true);
+        await this._saveDocumentStoreRecord(record, storeTransaction, true);
         hasBeenCreated = true;
-        await this.emit('didCreate', tr);
-        this.log.info(`Database '${this.name}' created`);
+        await this.emit('didCreate', storeTransaction);
+        if (this.log) {
+          this.log.info(`Document store '${this.name}' created`);
+        }
       }
     }.bind(this));
     return hasBeenCreated;
-  };
+  }
 
-  this.lockDatabase = async function() {
+  async lockDocumentStore() {
     let hasBeenLocked = false;
     while (!hasBeenLocked) {
-      await this.store.transaction(async function(tr) {
-        let record = await this.loadDatabaseRecord(tr);
+      await this.store.transaction(async function(storeTransaction) {
+        let record = await this._loadDocumentStoreRecord(storeTransaction);
         if (!record.isLocked) {
           record.isLocked = hasBeenLocked = true;
-          await this.saveDatabaseRecord(record, tr);
+          await this._saveDocumentStoreRecord(record, storeTransaction);
         }
       }.bind(this));
       if (!hasBeenLocked) {
-        this.log.info(`Waiting database '${this.name}'...`);
-        await util.timeout(5000); // wait 5 secs before retrying
+        if (this.log) {
+          this.log.info(`Waiting document store '${this.name}' unlocking...`);
+        }
+        await sleep(5000); // wait 5 secs before retrying
       }
     }
-  };
+  }
 
-  this.unlockDatabase = async function() {
-    let record = await this.loadDatabaseRecord();
+  async unlockDocumentStore() {
+    let record = await this._loadDocumentStoreRecord();
     record.isLocked = false;
-    await this.saveDatabaseRecord(record);
-  };
+    await this._saveDocumentStoreRecord(record);
+  }
 
-  this.upgradeDatabase = async function() {
-    let record = await this.loadDatabaseRecord();
+  async upgradeDocumentStore() {
+    let record = await this._loadDocumentStoreRecord();
     let version = record.version;
 
     if (version === VERSION) return;
 
     if (version > VERSION) {
-      throw new Error('cannot downgrade the database');
+      throw new Error('Cannot downgrade the document store');
     }
 
     this.emit('upgradeDidStart');
@@ -142,217 +135,232 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
     if (version < 2) {
       delete record.lastMigrationNumber;
       record.tables.forEach(table => {
-        table.indexes = _.pluck(table.indexes, 'name');
+        table.indexes = table.indexes.map(index => index.name);
       });
     }
 
+    if (version < 3) { // rename 'tables' property to 'collections'
+      record.collections = record.tables;
+      delete record.tables;
+    }
+
     record.version = VERSION;
-    await this.saveDatabaseRecord(record);
-    this.log.info(`Database '${this.name}' upgraded to version ${VERSION}`);
+    await this._saveDocumentStoreRecord(record);
+    if (this.log) {
+      this.log.info(`Document store '${this.name}' upgraded to version ${VERSION}`);
+    }
 
     this.emit('upgradeDidStop');
-  };
+  }
 
-  this.verifyDatabase = async function() {
+  async verifyDocumentStore() {
     // ...
-  };
+  }
 
-  this.migrateDatabase = async function() {
-    let record = await this.loadDatabaseRecord();
+  async migrateDocumentStore() {
+    let record = await this._loadDocumentStoreRecord();
     try {
-      // Find out added or updated tables
-      for (let table of this.tables) {
-        let existingTable = _.find(record.tables, 'name', table.name);
-        if (!existingTable) {
+      // Find out added or updated collections
+      for (let collection of this.collections) {
+        let existingCollection = record.collections.find(collec => collec.name === collection.name);
+        if (!existingCollection) {
           this._emitMigrationDidStart();
-          record.tables.push({
-            name: table.name,
-            indexes: _.pluck(table.indexes, 'name')
+          record.collections.push({
+            name: collection.name,
+            indexes: collection.indexes.map(index => index.name)
           });
-          await this.saveDatabaseRecord(record);
-          this.log.info(`Table '${table.name}' (database '${this.name}') added`);
-        } else if (existingTable.hasBeenRemoved) {
-          throw new Error('adding a table that has been removed is not implemented yet');
+          await this._saveDocumentStoreRecord(record);
+          if (this.log) {
+            this.log.info(`Collection '${collection.name}' (document store '${this.name}') added`);
+          }
+        } else if (existingCollection.hasBeenRemoved) {
+          throw new Error('Adding a collection that has been removed is not implemented yet');
         } else {
           // Find out added indexes
-          for (let index of table.indexes) {
-            if (!_.contains(existingTable.indexes, index.name)) {
+          for (let index of collection.indexes) {
+            if (!existingCollection.indexes.includes(index.name)) {
               this._emitMigrationDidStart();
-              await this._addIndex(table, index);
-              existingTable.indexes.push(index.name);
-              await this.saveDatabaseRecord(record);
+              await this._addIndex(collection, index);
+              existingCollection.indexes.push(index.name);
+              await this._saveDocumentStoreRecord(record);
             }
           }
           // Find out removed indexes
-          let existingIndexNames = _.clone(existingTable.indexes);
+          let existingIndexNames = clone(existingCollection.indexes);
           for (let existingIndexName of existingIndexNames) {
-            if (!_.find(table.indexes, 'name', existingIndexName)) {
+            if (!collection.indexes.find(index => index.name === existingIndexName)) {
               this._emitMigrationDidStart();
-              await this._removeIndex(table.name, existingIndexName);
-              _.pull(existingTable.indexes, existingIndexName);
-              await this.saveDatabaseRecord(record);
+              await this._removeIndex(collection.name, existingIndexName);
+              pull(existingCollection.indexes, existingIndexName);
+              await this._saveDocumentStoreRecord(record);
             }
           }
         }
       }
 
-      // Find out removed tables
-      for (let existingTable of record.tables) {
-        if (existingTable.hasBeenRemoved) continue;
-        let table = _.find(this.tables, 'name', existingTable.name);
-        if (!table) {
+      // Find out removed collections
+      for (let existingCollection of record.collections) {
+        if (existingCollection.hasBeenRemoved) continue;
+        let collection = this.collections.find(collection => collection.name === existingCollection.name);
+        if (!collection) {
           this._emitMigrationDidStart();
-          for (let existingIndexName of existingTable.indexes) {
-            await this._removeIndex(existingTable.name, existingIndexName);
+          for (let existingIndexName of existingCollection.indexes) {
+            await this._removeIndex(existingCollection.name, existingIndexName);
           }
-          existingTable.indexes.length = 0;
-          existingTable.hasBeenRemoved = true;
-          await this.saveDatabaseRecord(record);
-          this.log.info(`Table '${existingTable.name}' (database '${this.name}') marked as removed`);
+          existingCollection.indexes.length = 0;
+          existingCollection.hasBeenRemoved = true;
+          await this._saveDocumentStoreRecord(record);
+          if (this.log) {
+            this.log.info(`Collection '${existingCollection.name}' (document store '${this.name}') marked as removed`);
+          }
         }
       }
     } finally {
       this._emitMigrationDidStop();
     }
-  };
+  }
 
-  this._emitMigrationDidStart = function() {
+  _emitMigrationDidStart() {
     if (!this.migrationDidStartEventHasBeenEmitted) {
       this.emit('migrationDidStart');
       this.migrationDidStartEventHasBeenEmitted = true;
     }
-  };
+  }
 
-  this._emitMigrationDidStop = function() {
+  _emitMigrationDidStop() {
     if (this.migrationDidStartEventHasBeenEmitted) {
       this.emit('migrationDidStop');
       delete this.migrationDidStartEventHasBeenEmitted;
     }
-  };
+  }
 
-  this._addIndex = async function(table, index) {
-    this.log.info(`Adding index '${index.name}' (database '${this.name}', table '${table.name}')...`);
-    await this.forEachItems(table, {}, async function(item, key) {
-      await this.updateIndex(table, key, undefined, item, index);
-    }, this);
-  };
-
-  this._removeIndex = async function(tableName, indexName) {
-    this.log.info(`Removing index '${indexName}' (database '${this.name}', table '${tableName}')...`);
-    let prefix = [this.name, this.makeIndexTableName(tableName, indexName)];
-    await this.store.delRange({ prefix });
-  };
-
-  this.transaction = async function(fn, options) {
-    if (this.isInsideTransaction) return await fn(this);
-    await this.initializeDatabase();
-    return await this.store.transaction(async function(tr) {
-      let transaction = Object.create(this);
-      transaction.store = tr;
-      return await fn(transaction);
-    }.bind(this), options);
-  };
-
-  Object.defineProperty(this, 'isInsideTransaction', {
-    get() {
-      return this !== this.database;
+  async _addIndex(collection, index) {
+    if (this.log) {
+      this.log.info(`Adding index '${index.name}' (document store '${this.name}', collection '${collection.name}')...`);
     }
-  });
+    await this.forEachItems(collection, {}, async function(item, key) {
+      await this.updateIndex(collection, key, undefined, item, index);
+    }, this);
+  }
 
-  this.getStatistics = async function() {
-    let tablesCount = 0;
-    let removedTablesCount = 0;
+  async _removeIndex(collectionName, indexName) {
+    if (this.log) {
+      this.log.info(`Removing index '${indexName}' (document store '${this.name}', collection '${collectionName}')...`);
+    }
+    let prefix = [this.name, this.makeIndexCollectionName(collectionName, indexName)];
+    await this.store.delRange({ prefix });
+  }
+
+  async _loadDocumentStoreRecord(storeTransaction, errorIfMissing = true) {
+    if (!storeTransaction) storeTransaction = this.store;
+    return await storeTransaction.get([this.name], { errorIfMissing });
+  }
+
+  async _saveDocumentStoreRecord(record, storeTransaction, errorIfExists) {
+    if (!storeTransaction) storeTransaction = this.store;
+    await storeTransaction.put([this.name], record, {
+      errorIfExists,
+      createIfMissing: !errorIfExists
+    });
+  }
+
+  async getStatistics() {
+    let collectionsCount = 0;
+    let removedCollectionsCount = 0;
     let indexesCount = 0;
-    let record = await this.loadDatabaseRecord(undefined, false);
+    let record = await this._loadDocumentStoreRecord(undefined, false);
     if (record) {
-      record.tables.forEach(table => {
-        if (!table.hasBeenRemoved) {
-          tablesCount++;
+      record.collections.forEach(collection => {
+        if (!collection.hasBeenRemoved) {
+          collectionsCount++;
         } else {
-          removedTablesCount++;
+          removedCollectionsCount++;
         }
-        indexesCount += table.indexes.length;
+        indexesCount += collection.indexes.length;
       });
     }
-    let storePairsCount = await this.store.getCount({ prefix: this.name });
+    let storePairsCount = await this.store.countRange({ prefix: this.name });
     return {
-      tablesCount,
-      removedTablesCount,
+      collectionsCount,
+      removedCollectionsCount,
       indexesCount,
       store: {
         pairsCount: storePairsCount
       }
     };
-  };
+  }
 
-  this.removeTablesMarkedAsRemoved = async function() {
-    let record = await this.loadDatabaseRecord();
-    let tableNames = _.pluck(record.tables, 'name');
-    for (let i = 0; i < tableNames.length; i++) {
-      let tableName = tableNames[i];
-      let table = _.find(record.tables, 'name', tableName);
-      if (!table.hasBeenRemoved) continue;
-      await this._removeTable(tableName);
-      _.pull(record.tables, table);
-      await this.saveDatabaseRecord(record);
-      this.log.info(`Table '${tableName}' (database '${this.name}') permanently removed`);
+  async removeCollectionsMarkedAsRemoved() {
+    let record = await this._loadDocumentStoreRecord();
+    let collectionNames = record.collections.map(collection => collection.name);
+    for (let i = 0; i < collectionNames.length; i++) {
+      let collectionName = collectionNames[i];
+      let collection = record.collections.find(collection => collection.name === collectionName);
+      if (!collection.hasBeenRemoved) continue;
+      await this._removeCollection(collectionName);
+      pull(record.collections, collection);
+      await this._saveDocumentStoreRecord(record);
+      if (this.log) {
+        this.log.info(`Collection '${collectionName}' (document store '${this.name}') permanently removed`);
+      }
     }
-  };
+  }
 
-  this._removeTable = async function(tableName) {
-    let prefix = [this.name, tableName];
+  async _removeCollection(collectionName) {
+    let prefix = [this.name, collectionName];
     await this.store.delRange({ prefix });
-  };
+  }
 
-  this.destroyDatabase = async function() {
-    if (this.isInsideTransaction) {
-      throw new Error('cannot reset the database inside a transaction');
+  async destroy() {
+    if (this.insideTransaction) {
+      throw new Error('Cannot destroy a document store inside a transaction');
     }
     this.hasBeenInitialized = false;
     await this.store.delRange({ prefix: this.name });
-  };
+  }
 
-  this.closeDatabase = async function() {
+  async close() {
     await this.store.close();
-  };
+  }
 
-  // === Tables ====
+  // === Collections ====
 
-  this.getTable = function(name, errorIfMissing) {
+  getCollection(name, errorIfMissing) {
     if (errorIfMissing == null) errorIfMissing = true;
-    let table = _.find(this.tables, 'name', name);
-    if (!table && errorIfMissing) {
-      throw new Error(`Table '${table.name}' (database '${this.name}') is missing`);
+    let collection = this.collections.find(collection => collection.name === name);
+    if (!collection && errorIfMissing) {
+      throw new Error(`Collection '${collection.name}' (document store '${this.name}') is missing`);
     }
-    return table;
-  };
+    return collection;
+  }
 
-  this.addTable = function(options = {}) {
-    let table = this.getTable(options.name, false);
-    if (table) {
-      throw new Error(`Table '${options.name}' (database '${this.name}') already exists`);
+  addCollection(options = {}) {
+    if (typeof options === 'string') options = { name: options };
+    let collection = this.getCollection(options.name, false);
+    if (collection) {
+      throw new Error(`Collection '${options.name}' (document store '${this.name}') already exists`);
     }
-    table = Table.create(options);
-    this.tables.push(table);
-  };
+    collection = new Collection(options);
+    this.collections.push(collection);
+  }
 
-  this.normalizeTable = function(table) {
-    if (_.isString(table)) table = this.getTable(table);
-    return table;
-  };
+  normalizeCollection(collection) {
+    if (typeof collection === 'string') collection = this.getCollection(collection);
+    return collection;
+  }
 
   // === Indexes ====
 
-  this.updateIndexes = async function(table, key, oldItem, newItem) {
-    for (let i = 0; i < table.indexes.length; i++) {
-      let index = table.indexes[i];
-      await this.updateIndex(table, key, oldItem, newItem, index);
+  async updateIndexes(collection, key, oldItem, newItem) {
+    for (let i = 0; i < collection.indexes.length; i++) {
+      let index = collection.indexes[i];
+      await this.updateIndex(collection, key, oldItem, newItem, index);
     }
-  };
+  }
 
-  this.updateIndex = async function(table, key, oldItem, newItem, index) {
-    let flattenedOldItem = util.flattenObject(oldItem);
-    let flattenedNewItem = util.flattenObject(newItem);
+  async updateIndex(collection, key, oldItem, newItem, index) {
+    let flattenedOldItem = flatten(oldItem);
+    let flattenedNewItem = flatten(newItem);
     let oldValues = [];
     let newValues = [];
     index.properties.forEach(property => {
@@ -383,40 +391,40 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
         }
       });
     }
-    let valuesAreDifferent = !_.isEqual(oldValues, newValues);
-    let projectionIsDifferent = !_.isEqual(oldProjection, newProjection);
-    if (valuesAreDifferent && !_.contains(oldValues, undefined)) {
-      let indexKey = this.makeIndexKey(table, index, oldValues, key);
+    let valuesAreDifferent = !isEqual(oldValues, newValues);
+    let projectionIsDifferent = !isEqual(oldProjection, newProjection);
+    if (valuesAreDifferent && !oldValues.includes(undefined)) {
+      let indexKey = this.makeIndexKey(collection, index, oldValues, key);
       await this.store.del(indexKey);
     }
-    if ((valuesAreDifferent || projectionIsDifferent) && !_.contains(newValues, undefined)) {
-      let indexKey = this.makeIndexKey(table, index, newValues, key);
+    if ((valuesAreDifferent || projectionIsDifferent) && !newValues.includes(undefined)) {
+      let indexKey = this.makeIndexKey(collection, index, newValues, key);
       await this.store.put(indexKey, newProjection);
     }
-  };
+  }
 
-  this.makeIndexKey = function(table, index, values, key) {
-    let indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
+  makeIndexKey(collection, index, values, key) {
+    let indexKey = [this.name, this.makeIndexCollectionName(collection.name, index.name)];
     indexKey.push.apply(indexKey, values);
     indexKey.push(key);
     return indexKey;
-  };
+  }
 
-  this.makeIndexTableName = function(tableName, indexName) {
-    return tableName + ':' + indexName;
-  };
+  makeIndexCollectionName(collectionName, indexName) {
+    return collectionName + ':' + indexName;
+  }
 
-  this.makeIndexKeyForQuery = function(table, index, query) {
+  makeIndexKeyForQuery(collection, index, query) {
     if (!query) query = {};
-    let indexKey = [this.name, this.makeIndexTableName(table.name, index.name)];
-    let keys = _.pluck(index.properties, 'key');
-    let queryKeys = _.keys(query);
+    let indexKey = [this.name, this.makeIndexCollectionName(collection.name, index.name)];
+    let keys = index.properties.map(property => property.key);
+    let queryKeys = Object.keys(query);
     for (let i = 0; i < queryKeys.length; i++) {
       let key = keys[i];
       indexKey.push(query[key]);
     }
     return indexKey;
-  };
+  }
 
   // === Basic operations ====
 
@@ -425,79 +433,79 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
   //   properties: indicates properties to fetch. '*' for all properties or
   //     an array of property name. If an index projection matches
   //     the requested properties, the projection is used. Default: '*'.
-  this.getItem = async function(table, key, options) {
-    table = this.normalizeTable(table);
+  async getItem(collection, key, options) {
+    collection = this.normalizeCollection(collection);
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
-    await this.initializeDatabase();
-    let item = await this.store.get(this.makeItemKey(table, key), options);
+    await this.initializeDocumentStore();
+    let item = await this.store.get(this.makeItemKey(collection, key), options);
     return item;
-  };
+  }
 
   // Options:
-  //   createIfMissing: add the item if it is missing in the table.
+  //   createIfMissing: add the item if it is missing in the collection.
   //     If the item is already present, replace it. Default: true.
   //   errorIfExists: throw an error if the item is already present
-  //     in the table. Default: false.
-  this.putItem = async function(table, key, item, options) {
-    table = this.normalizeTable(table);
+  //     in the collection. Default: false.
+  async putItem(collection, key, item, options) {
+    collection = this.normalizeCollection(collection);
     key = this.normalizeKey(key);
     item = this.normalizeItem(item);
     options = this.normalizeOptions(options);
-    await this.initializeDatabase();
+    await this.initializeDocumentStore();
     await this.transaction(async function(tr) {
-      let itemKey = tr.makeItemKey(table, key);
+      let itemKey = tr.makeItemKey(collection, key);
       let oldItem = await tr.store.get(itemKey, { errorIfMissing: false });
       await tr.store.put(itemKey, item, options);
-      await tr.updateIndexes(table, key, oldItem, item);
-      await tr.emit('didPutItem', table, key, item, options);
+      await tr.updateIndexes(collection, key, oldItem, item);
+      await tr.emit('didPutItem', collection, key, item, options);
     });
-  };
+  }
 
   // Options:
   //   errorIfMissing: throw an error if the item is not found. Default: true.
-  this.deleteItem = async function(table, key, options) {
-    table = this.normalizeTable(table);
+  async deleteItem(collection, key, options) {
+    collection = this.normalizeCollection(collection);
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
     let hasBeenDeleted = false;
-    await this.initializeDatabase();
+    await this.initializeDocumentStore();
     await this.transaction(async function(tr) {
-      let itemKey = tr.makeItemKey(table, key);
+      let itemKey = tr.makeItemKey(collection, key);
       let oldItem = await tr.store.get(itemKey, options);
       if (oldItem) {
         hasBeenDeleted = await tr.store.del(itemKey, options);
-        await tr.updateIndexes(table, key, oldItem, undefined);
-        await tr.emit('didDeleteItem', table, key, oldItem, options);
+        await tr.updateIndexes(collection, key, oldItem, undefined);
+        await tr.emit('didDeleteItem', collection, key, oldItem, options);
       }
     });
     return hasBeenDeleted;
-  };
+  }
 
   // Options:
   //   properties: indicates properties to fetch. '*' for all properties or
   //     an array of property name. Default: '*'. TODO
-  this.getItems = async function(table, keys, options) {
-    table = this.normalizeTable(table);
-    if (!_.isArray(keys)) throw new Error('invalid keys (should be an array)');
+  async getItems(collection, keys, options) {
+    collection = this.normalizeCollection(collection);
+    if (!Array.isArray(keys)) throw new Error('Invalid keys (should be an array)');
     if (!keys.length) return [];
     keys = keys.map(this.normalizeKey, this);
     options = this.normalizeOptions(options);
-    let itemKeys = keys.map(key => this.makeItemKey(table, key));
-    options = _.clone(options);
+    let itemKeys = keys.map(key => this.makeItemKey(collection, key));
+    options = clone(options);
     options.returnValues = options.properties === '*' || options.properties.length;
     let iterationsCount = 0;
-    await this.initializeDatabase();
+    await this.initializeDocumentStore();
     let items = await this.store.getMany(itemKeys, options);
     let finalItems = [];
     for (let item of items) {
-      let finalItem = { key: _.last(item.key) };
+      let finalItem = { key: last(item.key) };
       if (options.returnValues) finalItem.value = item.value;
       finalItems.push(finalItem);
-      if (++iterationsCount % RESPIRATION_RATE === 0) await util.timeout(0);
+      if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
     return finalItems;
-  };
+  }
 
   // Options:
   //   query: specifies the search query.
@@ -510,172 +518,187 @@ let KindaDB = KindaObject.extend('KindaDB', function() {
   //     or an array of property name. If an index projection matches
   //     the requested properties, the projection is used.
   //   limit: maximum number of items to return.
-  this.findItems = async function(table, options) {
-    table = this.normalizeTable(table);
+  async findItems(collection, options) {
+    collection = this.normalizeCollection(collection);
     options = this.normalizeOptions(options);
-    if (!_.isEmpty(options.query) || !_.isEmpty(options.order)) {
-      return await this._findItemsWithIndex(table, options);
+    if (!isEmpty(options.query) || !isEmpty(options.order)) {
+      return await this._findItemsWithIndex(collection, options);
     }
-    options = _.clone(options);
-    options.prefix = [this.name, table.name];
+    options = clone(options);
+    options.prefix = [this.name, collection.name];
     options.returnValues = options.properties === '*' || options.properties.length;
     let iterationsCount = 0;
-    await this.initializeDatabase();
+    await this.initializeDocumentStore();
     let items = await this.store.getRange(options);
     let finalItems = [];
     for (let item of items) {
-      let finalItem = { key: _.last(item.key) };
+      let finalItem = { key: last(item.key) };
       if (options.returnValues) finalItem.value = item.value;
       finalItems.push(finalItem);
-      if (++iterationsCount % RESPIRATION_RATE === 0) await util.timeout(0);
+      if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
     return finalItems;
-  };
+  }
 
-  this._findItemsWithIndex = async function(table, options) {
-    let index = table.findIndexForQueryAndOrder(options.query, options.order);
+  async _findItemsWithIndex(collection, options) {
+    let index = collection.findIndexForQueryAndOrder(options.query, options.order);
 
     let fetchItem = options.properties === '*';
     let useProjection = false;
     if (!fetchItem && options.properties.length) {
-      let diff = _.difference(options.properties, index.projection);
+      let diff = difference(options.properties, index.projection);
       useProjection = diff.length === 0;
       if (!useProjection) {
         fetchItem = true;
-        this.log.debug('an index projection doesn\'t satisfy requested properties, full item will be fetched');
+        if (this.log) {
+          this.log.debug('An index projection doesn\'t satisfy requested properties, full item will be fetched');
+        }
       }
     }
 
-    options = _.clone(options);
-    options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
+    options = clone(options);
+    options.prefix = this.makeIndexKeyForQuery(collection, index, options.query);
     options.returnValues = useProjection;
 
     let iterationsCount = 0;
-    await this.initializeDatabase();
+    await this.initializeDocumentStore();
     let items = await this.store.getRange(options);
     let transformedItems = [];
     for (let item of items) {
-      let transformedItem = { key: _.last(item.key) };
+      let transformedItem = { key: last(item.key) };
       if (useProjection) transformedItem.value = item.value;
       transformedItems.push(transformedItem);
-      if (++iterationsCount % RESPIRATION_RATE === 0) await util.timeout(0);
+      if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
     items = transformedItems;
 
     if (fetchItem) {
-      let keys = _.pluck(items, 'key');
-      items = await this.getItems(table, keys, { errorIfMissing: false });
+      let keys = items.map(item => item.key);
+      items = await this.getItems(collection, keys, { errorIfMissing: false });
     }
 
     return items;
-  };
+  }
 
   // Options: same as findItems() without 'reverse' and 'properties' attributes.
-  this.countItems = async function(table, options) {
-    table = this.normalizeTable(table);
+  async countItems(collection, options) {
+    collection = this.normalizeCollection(collection);
     options = this.normalizeOptions(options);
-    if (!_.isEmpty(options.query) || !_.isEmpty(options.order)) {
-      return await this._countItemsWithIndex(table, options);
+    if (!isEmpty(options.query) || !isEmpty(options.order)) {
+      return await this._countItemsWithIndex(collection, options);
     }
-    options = _.clone(options);
-    options.prefix = [this.name, table.name];
-    await this.initializeDatabase();
-    return await this.store.getCount(options);
-  };
+    options = clone(options);
+    options.prefix = [this.name, collection.name];
+    await this.initializeDocumentStore();
+    return await this.store.countRange(options);
+  }
 
-  this._countItemsWithIndex = async function(table, options) {
-    let index = table.findIndexForQueryAndOrder(options.query, options.order);
-    options = _.clone(options);
-    options.prefix = this.makeIndexKeyForQuery(table, index, options.query);
-    await this.initializeDatabase();
-    return await this.store.getCount(options);
-  };
+  async _countItemsWithIndex(collection, options) {
+    let index = collection.findIndexForQueryAndOrder(options.query, options.order);
+    options = clone(options);
+    options.prefix = this.makeIndexKeyForQuery(collection, index, options.query);
+    await this.initializeDocumentStore();
+    return await this.store.countRange(options);
+  }
 
   // === Composed operations ===
 
   // Options: same as findItems() plus:
   //   batchSize: use several findItems() operations with batchSize as limit.
   //     Default: 250.
-  this.forEachItems = async function(table, options, fn, thisArg) {
-    table = this.normalizeTable(table);
+  async forEachItems(collection, options, fn, thisArg) {
+    collection = this.normalizeCollection(collection);
     options = this.normalizeOptions(options);
     if (!options.batchSize) options.batchSize = 250;
-    options = _.clone(options);
+    options = clone(options);
     options.limit = options.batchSize; // TODO: global 'limit' option
     while (true) {
-      let items = await this.findItems(table, options);
+      let items = await this.findItems(collection, options);
       if (!items.length) break;
       for (let i = 0; i < items.length; i++) {
         let item = items[i];
         await fn.call(thisArg, item.value, item.key);
       }
-      let lastItem = _.last(items);
+      let lastItem = last(items);
       options.startAfter = this.makeOrderKey(lastItem.key, lastItem.value, options.order);
       delete options.start;
     }
-  };
+  }
 
   // Options: same as forEachItems() without 'properties' attribute.
-  this.findAndDeleteItems = async function(table, options) {
-    table = this.normalizeTable(table);
+  async findAndDeleteItems(collection, options) {
+    collection = this.normalizeCollection(collection);
     options = this.normalizeOptions(options);
-    options = _.clone(options);
+    options = clone(options);
     options.properties = [];
     let deletedItemsCount = 0;
-    await this.forEachItems(table, options, async function(value, key) {
+    await this.forEachItems(collection, options, async function(value, key) {
       let hasBeenDeleted = await this.deleteItem(
-        table, key, { errorIfMissing: false }
+        collection, key, { errorIfMissing: false }
       );
       if (hasBeenDeleted) deletedItemsCount++;
     }, this);
     return deletedItemsCount;
-  };
+  }
+
+  // === Transactions ====
+
+  async transaction(fn) {
+    if (this.insideTransaction) return await fn(this);
+    await this.initializeDocumentStore();
+    return await this.store.transaction(async function(storeTransaction) {
+      let transaction = Object.create(this);
+      transaction.store = storeTransaction;
+      return await fn(transaction);
+    }.bind(this));
+  }
+
+  get insideTransaction() {
+    return this !== this.root;
+  }
 
   // === Helpers ====
 
-  this.makeItemKey = function(table, key) {
-    return [this.name, table.name, key];
-  };
+  makeItemKey(collection, key) {
+    return [this.name, collection.name, key];
+  }
 
-  this.makeOrderKey = function(key, value, order = []) {
+  makeOrderKey(key, value, order = []) {
     let orderKey = order.map(k => value[k]);
     orderKey.push(key);
     return orderKey;
-  };
+  }
 
-  this.normalizeKey = function(key) {
+  normalizeKey(key) {
     if (typeof key !== 'number' && typeof key !== 'string') {
-      throw new Error('invalid key type');
+      throw new Error('Invalid key type');
     }
     if (!key) {
-      throw new Error('key is null or empty');
+      throw new Error('Specified key is null or empty');
     }
     return key;
-  };
+  }
 
-  this.normalizeItem = function(item) {
-    if (!_.isObject(item)) throw new Error('invalid item type');
+  normalizeItem(item) {
+    if (!(item && typeof item === 'object')) throw new Error('Invalid item type');
     return item;
-  };
+  }
 
-  this.normalizeOptions = function(options) {
+  normalizeOptions(options) {
     if (!options) options = {};
-    if (options.hasOwnProperty('returnValues')) {
-      this.log.debug('\'returnValues\' option is deprecated in KindaDB');
-    }
     if (!options.hasOwnProperty('properties')) {
       options.properties = '*';
     } else if (options.properties === '*') {
       // It's OK
-    } else if (_.isArray(options.properties)) {
+    } else if (Array.isArray(options.properties)) {
       // It's OK
     } else if (options.properties == null) {
       options.properties = [];
     } else {
-      throw new Error('invalid \'properties\' option');
+      throw new Error('Invalid \'properties\' option');
     }
     return options;
-  };
-});
+  }
+}
 
-module.exports = KindaDB;
+export default DocumentStoreLayer;

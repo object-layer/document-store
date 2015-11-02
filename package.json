@@ -1,38 +1,47 @@
 {
-  "name": "kinda-db",
-  "version": "0.5.1",
-  "description": "...",
+  "name": "document-store-layer",
+  "version": "0.6.0",
+  "description": "Document store on top of any database",
+  "author": "Manuel Vila <mvila@3base.com>",
+  "license": "MIT",
+  "main": "lib/index.js",
   "repository": {
     "type": "git",
-    "url": "git://github.com/kinda/kinda-db"
+    "url": "git://github.com/object-layer/document-store-layer"
   },
-  "main": "lib/index.js",
   "scripts": {
     "compile": "babel src --out-dir lib",
     "prepublish": "npm run compile",
-    "release": "npm run lint && npm test && (git checkout --quiet master && test -z \"$(git status --porcelain)\" && npm version $npm_config_release_type && git push --follow-tags) || echo \"An error occured (unclean repository?)\"",
+    "release": "npm run lint && npm run compile && npm test && (git checkout --quiet master && test -z \"$(git status --porcelain)\" && npm version $npm_config_release_type && git push --follow-tags) || echo \"An error occured (unclean repository?)\"",
     "release-patch": "npm run release --release-type=patch",
     "release-minor": "npm run release --release-type=minor",
     "release-major": "npm run release --release-type=major",
     "lint": "eslint .",
-    "test": "mocha --compilers js:babel/register --ui tdd"
+    "test": "mocha --compilers js:babel/register"
   },
-  "author": "Manuel Vila <mvila@3base.com>",
-  "license": "MIT",
   "dependencies": {
-    "kinda-event-manager": "^0.2.0",
-    "kinda-log": "^0.2.0",
-    "kinda-object": "^0.3.0",
-    "kinda-store": "^0.2.0",
-    "kinda-util": "^0.2.0",
-    "lodash": "^3.9.1"
+    "event-emitter-mixin": "^0.1.6",
+    "expand-flatten": "^1.0.0",
+    "fn-name": "^2.0.1",
+    "lodash.clone": "^3.0.3",
+    "lodash.difference": "^3.2.2",
+    "lodash.isempty": "^3.0.4",
+    "lodash.isequal": "^3.0.4",
+    "lodash.isplainobject": "^3.2.0",
+    "lodash.last": "^3.0.0",
+    "lodash.pull": "^3.0.1",
+    "set-immediate-promise": "^1.0.3",
+    "sleep-promise": "^1.0.0",
+    "store-layer": "^0.1.4"
   },
   "devDependencies": {
-    "babel": "^5.4.7",
-    "babel-eslint": "^4.0.5",
-    "chai": "^2.3.0",
-    "eslint": "^1.0.0",
-    "eslint-config-kinda": "^0.2.0",
-    "mocha": "^2.2.5"
+    "babel": "^5.8.23",
+    "babel-eslint": "^4.1.3",
+    "chai": "^3.3.0",
+    "eslint": "^1.5.1",
+    "eslint-config-next": "^0.1.0",
+    "make-sort-key": "^1.0.2",
+    "mocha": "^2.3.3",
+    "universal-log": "^0.3.4"
   }
 }
