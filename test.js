@@ -2,14 +2,14 @@
 
 import { assert } from 'chai';
 import makeSortKey from 'make-sort-key';
-import DocumentStoreLayer from './src';
+import DocumentStore from './src';
 
-describe('DocumentStoreLayer', function() {
+describe('DocumentStore', function() {
   describe('migrations', function() {
     it('should handle one empty collection', async function() {
       let store, stats;
       try {
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection1' }]
@@ -23,7 +23,7 @@ describe('DocumentStoreLayer', function() {
         assert.strictEqual(stats.store.pairsCount, 1);
       } finally {
         if (store) {
-          await store.destroy();
+          await store.destroyDocumentStore();
           stats = await store.getStatistics();
           assert.strictEqual(stats.store.pairsCount, 0);
         }
@@ -33,7 +33,7 @@ describe('DocumentStoreLayer', function() {
     it('should handle one item in a collection', async function() {
       let store, stats;
       try {
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection1' }]
@@ -43,7 +43,7 @@ describe('DocumentStoreLayer', function() {
         assert.strictEqual(stats.store.pairsCount, 2);
       } finally {
         if (store) {
-          await store.destroy();
+          await store.destroyDocumentStore();
         }
       }
     });
@@ -51,7 +51,7 @@ describe('DocumentStoreLayer', function() {
     it('should handle one collection added afterwards then removed', async function() {
       let store, stats;
       try {
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection1' }]
@@ -60,7 +60,7 @@ describe('DocumentStoreLayer', function() {
         stats = await store.getStatistics();
         assert.strictEqual(stats.collectionsCount, 1);
 
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection1' }, { name: 'Collection2' }]
@@ -69,7 +69,7 @@ describe('DocumentStoreLayer', function() {
         stats = await store.getStatistics();
         assert.strictEqual(stats.collectionsCount, 2);
 
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection2' }]
@@ -85,7 +85,7 @@ describe('DocumentStoreLayer', function() {
         assert.strictEqual(stats.removedCollectionsCount, 0);
       } finally {
         if (store) {
-          await store.destroy();
+          await store.destroyDocumentStore();
         }
       }
     });
@@ -93,7 +93,7 @@ describe('DocumentStoreLayer', function() {
     it('should handle one index added afterwards then removed', async function() {
       let store, stats;
       try {
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection1' }]
@@ -103,7 +103,7 @@ describe('DocumentStoreLayer', function() {
         assert.strictEqual(stats.indexesCount, 0);
         assert.strictEqual(stats.store.pairsCount, 2);
 
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection1', indexes: ['property1'] }]
@@ -117,7 +117,7 @@ describe('DocumentStoreLayer', function() {
         stats = await store.getStatistics();
         assert.strictEqual(stats.store.pairsCount, 5);
 
-        store = new DocumentStoreLayer({
+        store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
           collections: [{ name: 'Collection1' }]
@@ -128,7 +128,7 @@ describe('DocumentStoreLayer', function() {
         assert.strictEqual(stats.store.pairsCount, 3);
       } finally {
         if (store) {
-          await store.destroy();
+          await store.destroyDocumentStore();
         }
       }
     });
@@ -138,7 +138,7 @@ describe('DocumentStoreLayer', function() {
     let store;
 
     before(async function() {
-      store = new DocumentStoreLayer({
+      store = new DocumentStore({
         name: 'Test',
         url: 'mysql://test@localhost/test',
         collections: [{ name: 'Users' }]
@@ -146,7 +146,7 @@ describe('DocumentStoreLayer', function() {
     });
 
     after(async function() {
-      await store.destroy();
+      await store.destroyDocumentStore();
     });
 
     it('should have a collections definition', async function() {
@@ -174,7 +174,7 @@ describe('DocumentStoreLayer', function() {
     let store;
 
     before(async function() {
-      store = new DocumentStoreLayer({
+      store = new DocumentStore({
         name: 'Test',
         url: 'mysql://test@localhost/test',
         collections: [
@@ -198,7 +198,7 @@ describe('DocumentStoreLayer', function() {
     });
 
     after(async function() {
-      await store.destroy();
+      await store.destroyDocumentStore();
     });
 
     beforeEach(async function() {

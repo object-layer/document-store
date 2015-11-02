@@ -1,5 +1,5 @@
 {
-  "name": "document-store-layer",
+  "name": "document-store",
   "version": "0.6.0",
   "description": "Document store on top of any database",
   "author": "Manuel Vila <mvila@3base.com>",
@@ -7,7 +7,7 @@
   "main": "lib/index.js",
   "repository": {
     "type": "git",
-    "url": "git://github.com/object-layer/document-store-layer"
+    "url": "git://github.com/object-layer/document-store"
   },
   "scripts": {
     "compile": "babel src --out-dir lib",
@@ -32,7 +32,7 @@
     "lodash.pull": "^3.0.1",
     "set-immediate-promise": "^1.0.3",
     "sleep-promise": "^1.0.0",
-    "store-layer": "^0.1.4"
+    "key-value-store": "^0.1.4"
   },
   "devDependencies": {
     "babel": "^5.8.23",

@@ -1,7 +1,7 @@
 'use strict';
 
 import EventEmitter from 'event-emitter-mixin';
-import StoreLayer from 'store-layer';
+import KeyValueStore from 'key-value-store';
 import sleep from 'sleep-promise';
 import setImmediatePromise from 'set-immediate-promise';
 import { flatten } from 'expand-flatten';
@@ -17,13 +17,13 @@ let VERSION = 3;
 const RESPIRATION_RATE = 250;
 
 @EventEmitter
-export class DocumentStoreLayer {
+export class DocumentStore {
   constructor(options = {}) {
     if (!options.name) throw new Error('Document store name is missing');
     if (!options.url) throw new Error('Document store URL is missing');
 
     this.name = options.name;
-    this.store = new StoreLayer(options.url);
+    this.store = new KeyValueStore(options.url);
 
     this.collections = [];
     let collections = options.collections || [];
@@ -311,7 +311,7 @@ export class DocumentStoreLayer {
     await this.store.delRange({ prefix });
   }
 
-  async destroy() {
+  async destroyDocumentStore() {
     if (this.insideTransaction) {
       throw new Error('Cannot destroy a document store inside a transaction');
     }
@@ -701,4 +701,4 @@ export class DocumentStoreLayer {
   }
 }
 
-export default DocumentStoreLayer;
+export default DocumentStore;
