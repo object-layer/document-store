@@ -1,6 +1,6 @@
 {
   "name": "document-store",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Document store on top of any database",
   "author": "Manuel Vila <mvila@3base.com>",
   "license": "MIT",
