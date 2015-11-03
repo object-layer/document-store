@@ -32,7 +32,7 @@
     "lodash.pull": "^3.0.1",
     "set-immediate-promise": "^1.0.3",
     "sleep-promise": "^1.0.0",
-    "key-value-store": "^0.1.4"
+    "key-value-store": "^0.1.6"
   },
   "devDependencies": {
     "babel": "^5.8.23",
