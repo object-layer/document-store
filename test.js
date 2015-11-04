@@ -2,7 +2,10 @@
 
 import { assert } from 'chai';
 import makeSortKey from 'make-sort-key';
+import UniversalLog from 'universal-log';
 import DocumentStore from './src';
+
+let log = new UniversalLog();
 
 describe('DocumentStore', function() {
   describe('migrations', function() {
@@ -12,7 +15,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }]
+          collections: [{ name: 'Collection1' }],
+          log
         });
 
         stats = await store.getStatistics();
@@ -36,7 +40,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }]
+          collections: [{ name: 'Collection1' }],
+          log
         });
         await store.put('Collection1', 'aaa', { property1: 'value1' });
         stats = await store.getStatistics();
@@ -54,7 +59,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }]
+          collections: [{ name: 'Collection1' }],
+          log
         });
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
@@ -63,7 +69,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }, { name: 'Collection2' }]
+          collections: [{ name: 'Collection1' }, { name: 'Collection2' }],
+          log
         });
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
@@ -72,7 +79,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection2' }]
+          collections: [{ name: 'Collection2' }],
+          log
         });
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
@@ -96,7 +104,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }]
+          collections: [{ name: 'Collection1' }],
+          log
         });
         await store.put('Collection1', 'aaa', { property1: 'value1' });
         stats = await store.getStatistics();
@@ -106,7 +115,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1', indexes: ['property1'] }]
+          collections: [{ name: 'Collection1', indexes: ['property1'] }],
+          log
         });
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
@@ -120,7 +130,8 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }]
+          collections: [{ name: 'Collection1' }],
+          log
         });
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
@@ -141,7 +152,8 @@ describe('DocumentStore', function() {
       store = new DocumentStore({
         name: 'Test',
         url: 'mysql://test@localhost/test',
-        collections: [{ name: 'Users' }]
+        collections: [{ name: 'Users' }],
+        log
       });
     });
 
@@ -193,7 +205,8 @@ describe('DocumentStore', function() {
               }
             ]
           }
-        ]
+        ],
+        log
       });
     });
 

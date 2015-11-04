@@ -1,5 +1,6 @@
 'use strict';
 
+import assert from 'assert';
 import EventEmitter from 'event-emitter-mixin';
 import KeyValueStore from 'key-value-store';
 import sleep from 'sleep-promise';
@@ -73,12 +74,7 @@ export class DocumentStore {
     await this.store.transaction(async function(storeTransaction) {
       let record = await this._loadDocumentStoreRecord(storeTransaction, false);
       if (!record) {
-        let collections = this.collections.map(collection => {
-          return {
-            name: collection.name,
-            indexes: collection.indexes.map(index => index.name)
-          };
-        });
+        let collections = this.collections.map(collection => collection.toJSON());
         record = {
           name: this.name,
           version: VERSION,
@@ -139,9 +135,8 @@ export class DocumentStore {
       });
     }
 
-    if (version < 3) { // rename 'tables' property to 'collections'
-      record.collections = record.tables;
-      delete record.tables;
+    if (version < 3) {
+      throw new Error('Cannot upgrade the document store to version 3 automatically');
     }
 
     record.version = VERSION;
@@ -165,10 +160,7 @@ export class DocumentStore {
         let existingCollection = record.collections.find(collec => collec.name === collection.name);
         if (!existingCollection) {
           this._emitMigrationDidStart();
-          record.collections.push({
-            name: collection.name,
-            indexes: collection.indexes.map(index => index.name)
-          });
+          record.collections.push(collection.toJSON());
           await this._saveDocumentStoreRecord(record);
           if (this.log) {
             this.log.info(`Collection '${collection.name}' (document store '${this.name}') added`);
@@ -178,20 +170,23 @@ export class DocumentStore {
         } else {
           // Find out added indexes
           for (let index of collection.indexes) {
-            if (!existingCollection.indexes.includes(index.name)) {
+            let found = existingCollection.indexes.find(existingIndex => isEqual(existingIndex.keys, index.keys));
+            if (!found) {
               this._emitMigrationDidStart();
               await this._addIndex(collection, index);
-              existingCollection.indexes.push(index.name);
+              existingCollection.indexes.push(index.toJSON());
               await this._saveDocumentStoreRecord(record);
             }
           }
           // Find out removed indexes
-          let existingIndexNames = clone(existingCollection.indexes);
-          for (let existingIndexName of existingIndexNames) {
-            if (!collection.indexes.find(index => index.name === existingIndexName)) {
+          let existingIndexesKeys = existingCollection.indexes.map(index => index.keys);
+          for (let existingIndexKeys of existingIndexesKeys) {
+            if (!collection.indexes.find(index => isEqual(index.keys, existingIndexKeys))) {
               this._emitMigrationDidStart();
-              await this._removeIndex(collection.name, existingIndexName);
-              pull(existingCollection.indexes, existingIndexName);
+              await this._removeIndex(collection.name, existingIndexKeys);
+              let i = existingCollection.indexes.findIndex(index => isEqual(index.keys, existingIndexKeys));
+              assert.notEqual(i, -1);
+              existingCollection.indexes.splice(i, 1);
               await this._saveDocumentStoreRecord(record);
             }
           }
@@ -204,8 +199,8 @@ export class DocumentStore {
         let collection = this.collections.find(collection => collection.name === existingCollection.name);
         if (!collection) {
           this._emitMigrationDidStart();
-          for (let existingIndexName of existingCollection.indexes) {
-            await this._removeIndex(existingCollection.name, existingIndexName);
+          for (let existingIndexes of existingCollection.indexes) {
+            await this._removeIndex(existingCollection.name, existingIndexes.keys);
           }
           existingCollection.indexes.length = 0;
           existingCollection.hasBeenRemoved = true;
@@ -235,15 +230,17 @@ export class DocumentStore {
   }
 
   async _addIndex(collection, index) {
+    let indexName = this.makeIndexName(index.keys);
     if (this.log) {
-      this.log.info(`Adding index '${index.name}' (document store '${this.name}', collection '${collection.name}')...`);
+      this.log.info(`Adding index '${indexName}' (document store '${this.name}', collection '${collection.name}')...`);
     }
     await this.forEach(collection, {}, async function(item, key) {
       await this.updateIndex(collection, key, undefined, item, index);
     }, this);
   }
 
-  async _removeIndex(collectionName, indexName) {
+  async _removeIndex(collectionName, indexKeys) {
+    let indexName = this.makeIndexName(indexKeys);
     if (this.log) {
       this.log.info(`Removing index '${indexName}' (document store '${this.name}', collection '${collectionName}')...`);
     }
@@ -335,12 +332,11 @@ export class DocumentStore {
   }
 
   addCollection(options = {}) {
-    if (typeof options === 'string') options = { name: options };
-    let collection = this.getCollection(options.name, false);
-    if (collection) {
-      throw new Error(`Collection '${options.name}' (document store '${this.name}') already exists`);
+    let collection = new Collection(options);
+    let existingCollection = this.getCollection(collection.name, false);
+    if (existingCollection) {
+      throw new Error(`Collection '${collection.name}' (document store '${this.name}') already exists`);
     }
-    collection = new Collection(options);
     this.collections.push(collection);
   }
 
@@ -403,8 +399,13 @@ export class DocumentStore {
     }
   }
 
+  makeIndexName(keys) {
+    return keys.join('+');
+  }
+
   makeIndexKey(collection, index, values, key) {
-    let indexKey = [this.name, this.makeIndexCollectionName(collection.name, index.name)];
+    let indexName = this.makeIndexName(index.keys);
+    let indexKey = [this.name, this.makeIndexCollectionName(collection.name, indexName)];
     indexKey.push.apply(indexKey, values);
     indexKey.push(key);
     return indexKey;
@@ -416,7 +417,8 @@ export class DocumentStore {
 
   makeIndexKeyForQuery(collection, index, query) {
     if (!query) query = {};
-    let indexKey = [this.name, this.makeIndexCollectionName(collection.name, index.name)];
+    let indexName = this.makeIndexName(index.keys);
+    let indexKey = [this.name, this.makeIndexCollectionName(collection.name, indexName)];
     let keys = index.properties.map(property => property.key);
     let queryKeys = Object.keys(query);
     for (let i = 0; i < queryKeys.length; i++) {
