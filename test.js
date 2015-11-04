@@ -20,16 +20,16 @@ describe('DocumentStore', function() {
         });
 
         stats = await store.getStatistics();
-        assert.strictEqual(stats.store.pairsCount, 0);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 0);
 
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
-        assert.strictEqual(stats.store.pairsCount, 1);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 1);
       } finally {
         if (store) {
           await store.destroyAll();
           stats = await store.getStatistics();
-          assert.strictEqual(stats.store.pairsCount, 0);
+          assert.strictEqual(stats.keyValueStore.pairsCount, 0);
         }
       }
     });
@@ -45,7 +45,7 @@ describe('DocumentStore', function() {
         });
         await store.put('Collection1', 'aaa', { property1: 'value1' });
         stats = await store.getStatistics();
-        assert.strictEqual(stats.store.pairsCount, 2);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 2);
       } finally {
         if (store) {
           await store.destroyAll();
@@ -110,7 +110,7 @@ describe('DocumentStore', function() {
         await store.put('Collection1', 'aaa', { property1: 'value1' });
         stats = await store.getStatistics();
         assert.strictEqual(stats.indexesCount, 0);
-        assert.strictEqual(stats.store.pairsCount, 2);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 2);
 
         store = new DocumentStore({
           name: 'Test',
@@ -121,11 +121,11 @@ describe('DocumentStore', function() {
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
         assert.strictEqual(stats.indexesCount, 1);
-        assert.strictEqual(stats.store.pairsCount, 3);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 3);
 
         await store.put('Collection1', 'bbb', { property1: 'value2' });
         stats = await store.getStatistics();
-        assert.strictEqual(stats.store.pairsCount, 5);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 5);
 
         store = new DocumentStore({
           name: 'Test',
@@ -136,7 +136,74 @@ describe('DocumentStore', function() {
         await store.initializeDocumentStore();
         stats = await store.getStatistics();
         assert.strictEqual(stats.indexesCount, 0);
-        assert.strictEqual(stats.store.pairsCount, 3);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 3);
+      } finally {
+        if (store) {
+          await store.destroyAll();
+        }
+      }
+    });
+
+    it('should rebuild updated indexes', async function() {
+      let store, stats, people;
+      try {
+        store = new DocumentStore({
+          name: 'Test',
+          url: 'mysql://test@localhost/test',
+          collections: [{
+            name: 'People',
+            indexes: ['name']
+          }],
+          log
+        });
+        await store.put('People', 'aaa', { name: 'Manu' });
+        stats = await store.getStatistics();
+        assert.strictEqual(stats.indexesCount, 1);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 3);
+        people = await store.find('People', { query: { name: 'Manu' } });
+        assert.deepEqual(people, [ { key: 'aaa', value: { name: 'Manu' } } ]);
+
+        store = new DocumentStore({
+          name: 'Test',
+          url: 'mysql://test@localhost/test',
+          collections: [{
+            name: 'People',
+            indexes: [{
+              properties: 'name',
+              projection: ['name']
+            }]
+          }],
+          log
+        });
+        await store.initializeDocumentStore();
+        stats = await store.getStatistics();
+        assert.strictEqual(stats.indexesCount, 1);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 3);
+        people = await store.find('People', { query: { name: 'Manu' }, properties: ['name'] });
+        assert.deepEqual(people, [ { key: 'aaa', value: { name: 'Manu' } } ]);
+
+        store = new DocumentStore({
+          name: 'Test',
+          url: 'mysql://test@localhost/test',
+          collections: [{
+            name: 'People',
+            indexes: [{
+              properties: function name(item) {
+                if (!item || item.name == null) return undefined;
+                return item.name.toLowerCase();
+              },
+              projection: ['name'],
+              version: 2
+            }]
+          }],
+          log
+        });
+        await store.initializeDocumentStore();
+        stats = await store.getStatistics();
+        assert.strictEqual(stats.indexesCount, 1);
+        assert.strictEqual(stats.keyValueStore.pairsCount, 3);
+        people = await store.find('People', { query: { name: 'manu' }, properties: ['name'] });
+        assert.deepEqual(people, [ { key: 'aaa', value: { name: 'Manu' } } ]);
       } finally {
         if (store) {
           await store.destroyAll();

@@ -158,7 +158,7 @@ export class DocumentStore {
       // Find out added or updated collections
       for (let collection of this.collections) {
         let existingCollection = record.collections.find(collec => collec.name === collection.name);
-        if (!existingCollection) {
+        if (!existingCollection) { // added collection
           this._emitMigrationDidStart();
           record.collections.push(collection.toJSON());
           await this._saveDocumentStoreRecord(record);
@@ -168,20 +168,28 @@ export class DocumentStore {
         } else if (existingCollection.hasBeenRemoved) {
           throw new Error('Adding a collection that has been removed is not implemented yet');
         } else {
-          // Find out added indexes
+          // Find out added or updated indexes
           for (let index of collection.indexes) {
-            let found = existingCollection.indexes.find(existingIndex => isEqual(existingIndex.keys, index.keys));
-            if (!found) {
+            let existingIndex = existingCollection.indexes.find(existingIndex => isEqual(existingIndex.keys, index.keys));
+            if (!existingIndex) { // added index
               this._emitMigrationDidStart();
               await this._addIndex(collection, index);
               existingCollection.indexes.push(index.toJSON());
+              await this._saveDocumentStoreRecord(record);
+            } else if (!(isEqual(existingIndex.projection, index.projection) && existingIndex.version === index.version)) { // updated index
+              this._emitMigrationDidStart();
+              await this._updateIndex(collection, index);
+              if (index.projection == null) delete existingIndex.projection;
+              else existingIndex.projection = index.projection;
+              if (index.version == null) delete existingIndex.version;
+              else existingIndex.version = index.version;
               await this._saveDocumentStoreRecord(record);
             }
           }
           // Find out removed indexes
           let existingIndexesKeys = existingCollection.indexes.map(index => index.keys);
           for (let existingIndexKeys of existingIndexesKeys) {
-            if (!collection.indexes.find(index => isEqual(index.keys, existingIndexKeys))) {
+            if (!collection.indexes.find(index => isEqual(index.keys, existingIndexKeys))) { // removed index
               this._emitMigrationDidStart();
               await this._removeIndex(collection.name, existingIndexKeys);
               let i = existingCollection.indexes.findIndex(index => isEqual(index.keys, existingIndexKeys));
@@ -197,7 +205,7 @@ export class DocumentStore {
       for (let existingCollection of record.collections) {
         if (existingCollection.hasBeenRemoved) continue;
         let collection = this.collections.find(collection => collection.name === existingCollection.name);
-        if (!collection) {
+        if (!collection) { // removed collection
           this._emitMigrationDidStart();
           for (let existingIndexes of existingCollection.indexes) {
             await this._removeIndex(existingCollection.name, existingIndexes.keys);
@@ -234,6 +242,18 @@ export class DocumentStore {
     if (this.log) {
       this.log.info(`Adding index '${indexName}' (document store '${this.name}', collection '${collection.name}')...`);
     }
+    await this.forEach(collection, {}, async function(item, key) {
+      await this.updateIndex(collection, key, undefined, item, index);
+    }, this);
+  }
+
+  async _updateIndex(collection, index) {
+    let indexName = this.makeIndexName(index.keys);
+    if (this.log) {
+      this.log.info(`Updating index '${indexName}' (document store '${this.name}', collection '${collection.name}')...`);
+    }
+    let prefix = [this.name, this.makeIndexCollectionName(collection.name, indexName)];
+    await this.store.findAndDelete({ prefix });
     await this.forEach(collection, {}, async function(item, key) {
       await this.updateIndex(collection, key, undefined, item, index);
     }, this);
@@ -281,7 +301,7 @@ export class DocumentStore {
       collectionsCount,
       removedCollectionsCount,
       indexesCount,
-      store: {
+      keyValueStore: {
         pairsCount: storePairsCount
       }
     };
