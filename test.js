@@ -161,7 +161,7 @@ describe('DocumentStore', function() {
         assert.strictEqual(stats.indexesCount, 1);
         assert.strictEqual(stats.keyValueStore.pairsCount, 3);
         people = await store.find('People', { query: { name: 'Manu' } });
-        assert.deepEqual(people, [ { key: 'aaa', value: { name: 'Manu' } } ]);
+        assert.deepEqual(people, [ { key: 'aaa', document: { name: 'Manu' } } ]);
 
         store = new DocumentStore({
           name: 'Test',
@@ -180,7 +180,7 @@ describe('DocumentStore', function() {
         assert.strictEqual(stats.indexesCount, 1);
         assert.strictEqual(stats.keyValueStore.pairsCount, 3);
         people = await store.find('People', { query: { name: 'Manu' }, properties: ['name'] });
-        assert.deepEqual(people, [ { key: 'aaa', value: { name: 'Manu' } } ]);
+        assert.deepEqual(people, [ { key: 'aaa', document: { name: 'Manu' } } ]);
 
         store = new DocumentStore({
           name: 'Test',
@@ -202,7 +202,7 @@ describe('DocumentStore', function() {
         assert.strictEqual(stats.indexesCount, 1);
         assert.strictEqual(stats.keyValueStore.pairsCount, 3);
         people = await store.find('People', { query: { name: 'manu' }, properties: ['name'] });
-        assert.deepEqual(people, [ { key: 'aaa', value: { name: 'Manu' } } ]);
+        assert.deepEqual(people, [ { key: 'aaa', document: { name: 'Manu' } } ]);
       } finally {
         if (store) {
           await store.destroyAll();
@@ -329,34 +329,34 @@ describe('DocumentStore', function() {
       let docs = await store.getMany('People', ['aaa', 'ccc']);
       assert.strictEqual(docs.length, 2);
       assert.strictEqual(docs[0].key, 'aaa');
-      assert.strictEqual(docs[0].value.firstName, 'Manuel');
+      assert.strictEqual(docs[0].document.firstName, 'Manuel');
       assert.strictEqual(docs[1].key, 'ccc');
-      assert.strictEqual(docs[1].value.firstName, 'Bob');
+      assert.strictEqual(docs[1].document.firstName, 'Bob');
     });
 
     it('should find all documents in a collection', async function() {
       let docs = await store.find('People');
       assert.strictEqual(docs.length, 6);
       assert.strictEqual(docs[0].key, 'aaa');
-      assert.strictEqual(docs[0].value.firstName, 'Manuel');
+      assert.strictEqual(docs[0].document.firstName, 'Manuel');
       assert.strictEqual(docs[5].key, 'fff');
-      assert.strictEqual(docs[5].value.firstName, 'Jacques');
+      assert.strictEqual(docs[5].document.firstName, 'Jacques');
     });
 
     it('should find and order documents', async function() {
       let docs = await store.find('People', { order: 'age' });
       assert.strictEqual(docs.length, 6);
       assert.strictEqual(docs[0].key, 'ccc');
-      assert.strictEqual(docs[0].value.age, 20);
+      assert.strictEqual(docs[0].document.age, 20);
       assert.strictEqual(docs[5].key, 'bbb');
-      assert.strictEqual(docs[5].value.age, 60);
+      assert.strictEqual(docs[5].document.age, 60);
 
       docs = await store.find('People', { order: 'age', reverse: true });
       assert.strictEqual(docs.length, 6);
       assert.strictEqual(docs[0].key, 'bbb');
-      assert.strictEqual(docs[0].value.age, 60);
+      assert.strictEqual(docs[0].document.age, 60);
       assert.strictEqual(docs[5].key, 'ccc');
-      assert.strictEqual(docs[5].value.age, 20);
+      assert.strictEqual(docs[5].document.age, 20);
 
       let err = await catchError(async function() {
         await store.find('People', { order: 'missingProperty' });
@@ -437,14 +437,14 @@ describe('DocumentStore', function() {
       });
       let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
-      assert.deepEqual(docs[0].value, { firstName: 'Manuel', lastName: 'Vila' });
+      assert.deepEqual(docs[0].document, { firstName: 'Manuel', lastName: 'Vila' });
 
       docs = await store.find('People', { // will not use projection
         query: { country: 'France' }, properties: ['firstName', 'lastName', 'age']
       });
       keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
-      assert.deepEqual(docs[0].value, {
+      assert.deepEqual(docs[0].document, {
         firstName: 'Manuel', lastName: 'Vila',
         age: 42, city: 'Paris', country: 'France'
       });
@@ -485,7 +485,7 @@ describe('DocumentStore', function() {
 
     it('should iterate over documents', async function() {
       let keys = [];
-      await store.forEach('People', { batchSize: 2 }, async function(value, key) {
+      await store.forEach('People', { batchSize: 2 }, async function(doc, key) {
         keys.push(key);
       });
       assert.deepEqual(keys, ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff']);
@@ -494,7 +494,7 @@ describe('DocumentStore', function() {
     it('should iterate over documents in a specific order', async function() {
       let keys = [];
       let options = { order: ['lastName', 'firstName'], batchSize: 2 };
-      await store.forEach('People', options, async function(value, key) {
+      await store.forEach('People', options, async function(doc, key) {
         keys.push(key);
       });
       assert.deepEqual(keys, ['ccc', 'bbb', 'eee', 'fff', 'aaa', 'ddd']);

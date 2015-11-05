@@ -243,6 +243,7 @@ export class DocumentStore {
       this.log.info(`Adding index '${indexName}' (document store '${this.name}', collection '${collection.name}')...`);
     }
     await this.forEach(collection, {}, async function(doc, key) {
+      console.log(doc, key);
       await this.updateIndex(collection, key, undefined, doc, index);
     }, this);
   }
@@ -452,9 +453,6 @@ export class DocumentStore {
 
   // Options:
   //   errorIfMissing: throw an error if the document is not found. Default: true.
-  //   properties: indicates properties to fetch. '*' for all properties or
-  //     an array of property name. If an index projection matches
-  //     the requested properties, the projection is used. Default: '*'.
   async get(collection, key, options) {
     collection = this.normalizeCollection(collection);
     key = this.normalizeKey(key);
@@ -504,9 +502,6 @@ export class DocumentStore {
     return hasBeenDeleted;
   }
 
-  // Options:
-  //   properties: indicates properties to fetch. '*' for all properties or
-  //     an array of property name. Default: '*'. TODO
   async getMany(collection, keys, options) {
     collection = this.normalizeCollection(collection);
     if (!Array.isArray(keys)) throw new Error('Invalid keys (should be an array)');
@@ -518,15 +513,15 @@ export class DocumentStore {
     options.returnValues = options.properties === '*' || options.properties.length;
     let iterationsCount = 0;
     await this.initializeDocumentStore();
-    let docs = await this.store.getMany(docKeys, options);
-    let finalDocs = [];
-    for (let doc of docs) {
-      let finalDoc = { key: last(doc.key) };
-      if (options.returnValues) finalDoc.value = doc.value;
-      finalDocs.push(finalDoc);
+    let items = await this.store.getMany(docKeys, options);
+    let finalItems = [];
+    for (let item of items) {
+      let finalItem = { key: last(item.key) };
+      if (options.returnValues) finalItem.document = item.value;
+      finalItems.push(finalItem);
       if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
-    return finalDocs;
+    return finalItems;
   }
 
   // Options:
@@ -551,15 +546,15 @@ export class DocumentStore {
     options.returnValues = options.properties === '*' || options.properties.length;
     let iterationsCount = 0;
     await this.initializeDocumentStore();
-    let docs = await this.store.find(options);
-    let finalDocs = [];
-    for (let doc of docs) {
-      let finalDoc = { key: last(doc.key) };
-      if (options.returnValues) finalDoc.value = doc.value;
-      finalDocs.push(finalDoc);
+    let items = await this.store.find(options);
+    let finalItems = [];
+    for (let item of items) {
+      let finalItem = { key: last(item.key) };
+      if (options.returnValues) finalItem.document = item.value;
+      finalItems.push(finalItem);
       if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
-    return finalDocs;
+    return finalItems;
   }
 
   async _findWithIndex(collection, options) {
@@ -584,22 +579,22 @@ export class DocumentStore {
 
     let iterationsCount = 0;
     await this.initializeDocumentStore();
-    let docs = await this.store.find(options);
-    let transformedDocs = [];
-    for (let doc of docs) {
-      let transformedDoc = { key: last(doc.key) };
-      if (useProjection) transformedDoc.value = doc.value;
-      transformedDocs.push(transformedDoc);
+    let items = await this.store.find(options);
+    let transformedItems = [];
+    for (let item of items) {
+      let transformedItem = { key: last(item.key) };
+      if (useProjection) transformedItem.document = item.value;
+      transformedItems.push(transformedItem);
       if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
-    docs = transformedDocs;
+    items = transformedItems;
 
     if (fetchDoc) {
-      let keys = docs.map(doc => doc.key);
-      docs = await this.getMany(collection, keys, { errorIfMissing: false });
+      let keys = items.map(item => item.key);
+      items = await this.getMany(collection, keys, { errorIfMissing: false });
     }
 
-    return docs;
+    return items;
   }
 
   // Options: same as find() without 'reverse' and 'properties' attributes.
@@ -635,14 +630,14 @@ export class DocumentStore {
     options = clone(options);
     options.limit = options.batchSize; // TODO: global 'limit' option
     while (true) {
-      let docs = await this.find(collection, options);
-      if (!docs.length) break;
-      for (let i = 0; i < docs.length; i++) {
-        let doc = docs[i];
-        await fn.call(thisArg, doc.value, doc.key);
+      let items = await this.find(collection, options);
+      if (!items.length) break;
+      for (let i = 0; i < items.length; i++) {
+        let item = items[i];
+        await fn.call(thisArg, item.document, item.key);
       }
-      let lastDoc = last(docs);
-      options.startAfter = this.makeOrderKey(lastDoc.key, lastDoc.value, options.order);
+      let lastItem = last(items);
+      options.startAfter = this.makeOrderKey(lastItem.key, lastItem.document, options.order);
       delete options.start;
     }
   }
@@ -654,7 +649,7 @@ export class DocumentStore {
     options = clone(options);
     options.properties = [];
     let deletedDocsCount = 0;
-    await this.forEach(collection, options, async function(value, key) {
+    await this.forEach(collection, options, async function(doc, key) {
       let hasBeenDeleted = await this.delete(
         collection, key, { errorIfMissing: false }
       );
@@ -685,8 +680,8 @@ export class DocumentStore {
     return [this.name, collection.name, key];
   }
 
-  makeOrderKey(key, value, order = []) {
-    let orderKey = order.map(k => value[k]);
+  makeOrderKey(key, doc, order = []) {
+    let orderKey = order.map(k => doc[k]);
     orderKey.push(key);
     return orderKey;
   }
