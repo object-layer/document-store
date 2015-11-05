@@ -242,8 +242,8 @@ export class DocumentStore {
     if (this.log) {
       this.log.info(`Adding index '${indexName}' (document store '${this.name}', collection '${collection.name}')...`);
     }
-    await this.forEach(collection, {}, async function(item, key) {
-      await this.updateIndex(collection, key, undefined, item, index);
+    await this.forEach(collection, {}, async function(doc, key) {
+      await this.updateIndex(collection, key, undefined, doc, index);
     }, this);
   }
 
@@ -254,8 +254,8 @@ export class DocumentStore {
     }
     let prefix = [this.name, this.makeIndexCollectionName(collection.name, indexName)];
     await this.store.findAndDelete({ prefix });
-    await this.forEach(collection, {}, async function(item, key) {
-      await this.updateIndex(collection, key, undefined, item, index);
+    await this.forEach(collection, {}, async function(doc, key) {
+      await this.updateIndex(collection, key, undefined, doc, index);
     }, this);
   }
 
@@ -367,26 +367,26 @@ export class DocumentStore {
 
   // === Indexes ====
 
-  async updateIndexes(collection, key, oldItem, newItem) {
+  async updateIndexes(collection, key, oldDoc, newDoc) {
     for (let i = 0; i < collection.indexes.length; i++) {
       let index = collection.indexes[i];
-      await this.updateIndex(collection, key, oldItem, newItem, index);
+      await this.updateIndex(collection, key, oldDoc, newDoc, index);
     }
   }
 
-  async updateIndex(collection, key, oldItem, newItem, index) {
-    let flattenedOldItem = flatten(oldItem);
-    let flattenedNewItem = flatten(newItem);
+  async updateIndex(collection, key, oldDoc, newDoc, index) {
+    let flattenedOldDoc = flatten(oldDoc);
+    let flattenedNewDoc = flatten(newDoc);
     let oldValues = [];
     let newValues = [];
     index.properties.forEach(property => {
       let oldValue, newValue;
       if (property.value === true) { // simple index
-        oldValue = oldItem && flattenedOldItem[property.key];
-        newValue = newItem && flattenedNewItem[property.key];
+        oldValue = oldDoc && flattenedOldDoc[property.key];
+        newValue = newDoc && flattenedNewDoc[property.key];
       } else { // computed index
-        oldValue = oldItem && property.value(oldItem);
-        newValue = newItem && property.value(newItem);
+        oldValue = oldDoc && property.value(oldDoc);
+        newValue = newDoc && property.value(newDoc);
       }
       oldValues.push(oldValue);
       newValues.push(newValue);
@@ -395,12 +395,12 @@ export class DocumentStore {
     let newProjection;
     if (index.projection) {
       index.projection.forEach(k => {
-        let val = flattenedOldItem[k];
+        let val = flattenedOldDoc[k];
         if (val != null) {
           if (!oldProjection) oldProjection = {};
           oldProjection[k] = val;
         }
-        val = flattenedNewItem[k];
+        val = flattenedNewDoc[k];
         if (val != null) {
           if (!newProjection) newProjection = {};
           newProjection[k] = val;
@@ -451,7 +451,7 @@ export class DocumentStore {
   // === Basic operations ====
 
   // Options:
-  //   errorIfMissing: throw an error if the item is not found. Default: true.
+  //   errorIfMissing: throw an error if the document is not found. Default: true.
   //   properties: indicates properties to fetch. '*' for all properties or
   //     an array of property name. If an index projection matches
   //     the requested properties, the projection is used. Default: '*'.
@@ -460,32 +460,32 @@ export class DocumentStore {
     key = this.normalizeKey(key);
     options = this.normalizeOptions(options);
     await this.initializeDocumentStore();
-    let item = await this.store.get(this.makeItemKey(collection, key), options);
-    return item;
+    let doc = await this.store.get(this.makeDocumentKey(collection, key), options);
+    return doc;
   }
 
   // Options:
-  //   createIfMissing: add the item if it is missing in the collection.
-  //     If the item is already present, replace it. Default: true.
-  //   errorIfExists: throw an error if the item is already present
+  //   createIfMissing: add the document if it is missing in the collection.
+  //     If the document is already present, replace it. Default: true.
+  //   errorIfExists: throw an error if the document is already present
   //     in the collection. Default: false.
-  async put(collection, key, item, options) {
+  async put(collection, key, doc, options) {
     collection = this.normalizeCollection(collection);
     key = this.normalizeKey(key);
-    item = this.normalizeItem(item);
+    doc = this.normalizeDocument(doc);
     options = this.normalizeOptions(options);
     await this.initializeDocumentStore();
     await this.transaction(async function(tr) {
-      let itemKey = tr.makeItemKey(collection, key);
-      let oldItem = await tr.store.get(itemKey, { errorIfMissing: false });
-      await tr.store.put(itemKey, item, options);
-      await tr.updateIndexes(collection, key, oldItem, item);
-      await tr.emit('didPutItem', collection, key, item, options);
+      let docKey = tr.makeDocumentKey(collection, key);
+      let oldDoc = await tr.store.get(docKey, { errorIfMissing: false });
+      await tr.store.put(docKey, doc, options);
+      await tr.updateIndexes(collection, key, oldDoc, doc);
+      await tr.emit('didPut', collection, key, doc, options);
     });
   }
 
   // Options:
-  //   errorIfMissing: throw an error if the item is not found. Default: true.
+  //   errorIfMissing: throw an error if the document is not found. Default: true.
   async delete(collection, key, options) {
     collection = this.normalizeCollection(collection);
     key = this.normalizeKey(key);
@@ -493,12 +493,12 @@ export class DocumentStore {
     let hasBeenDeleted = false;
     await this.initializeDocumentStore();
     await this.transaction(async function(tr) {
-      let itemKey = tr.makeItemKey(collection, key);
-      let oldItem = await tr.store.get(itemKey, options);
-      if (oldItem) {
-        hasBeenDeleted = await tr.store.delete(itemKey, options);
-        await tr.updateIndexes(collection, key, oldItem, undefined);
-        await tr.emit('didDeleteItem', collection, key, oldItem, options);
+      let docKey = tr.makeDocumentKey(collection, key);
+      let oldDoc = await tr.store.get(docKey, options);
+      if (oldDoc) {
+        hasBeenDeleted = await tr.store.delete(docKey, options);
+        await tr.updateIndexes(collection, key, oldDoc, undefined);
+        await tr.emit('didDelete', collection, key, oldDoc, options);
       }
     });
     return hasBeenDeleted;
@@ -513,20 +513,20 @@ export class DocumentStore {
     if (!keys.length) return [];
     keys = keys.map(this.normalizeKey, this);
     options = this.normalizeOptions(options);
-    let itemKeys = keys.map(key => this.makeItemKey(collection, key));
+    let docKeys = keys.map(key => this.makeDocumentKey(collection, key));
     options = clone(options);
     options.returnValues = options.properties === '*' || options.properties.length;
     let iterationsCount = 0;
     await this.initializeDocumentStore();
-    let items = await this.store.getMany(itemKeys, options);
-    let finalItems = [];
-    for (let item of items) {
-      let finalItem = { key: last(item.key) };
-      if (options.returnValues) finalItem.value = item.value;
-      finalItems.push(finalItem);
+    let docs = await this.store.getMany(docKeys, options);
+    let finalDocs = [];
+    for (let doc of docs) {
+      let finalDoc = { key: last(doc.key) };
+      if (options.returnValues) finalDoc.value = doc.value;
+      finalDocs.push(finalDoc);
       if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
-    return finalItems;
+    return finalDocs;
   }
 
   // Options:
@@ -539,7 +539,7 @@ export class DocumentStore {
   //   properties: indicates properties to fetch. '*' for all properties
   //     or an array of property name. If an index projection matches
   //     the requested properties, the projection is used.
-  //   limit: maximum number of items to return.
+  //   limit: maximum number of documents to return.
   async find(collection, options) {
     collection = this.normalizeCollection(collection);
     options = this.normalizeOptions(options);
@@ -551,29 +551,29 @@ export class DocumentStore {
     options.returnValues = options.properties === '*' || options.properties.length;
     let iterationsCount = 0;
     await this.initializeDocumentStore();
-    let items = await this.store.find(options);
-    let finalItems = [];
-    for (let item of items) {
-      let finalItem = { key: last(item.key) };
-      if (options.returnValues) finalItem.value = item.value;
-      finalItems.push(finalItem);
+    let docs = await this.store.find(options);
+    let finalDocs = [];
+    for (let doc of docs) {
+      let finalDoc = { key: last(doc.key) };
+      if (options.returnValues) finalDoc.value = doc.value;
+      finalDocs.push(finalDoc);
       if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
-    return finalItems;
+    return finalDocs;
   }
 
   async _findWithIndex(collection, options) {
     let index = collection.findIndexForQueryAndOrder(options.query, options.order);
 
-    let fetchItem = options.properties === '*';
+    let fetchDoc = options.properties === '*';
     let useProjection = false;
-    if (!fetchItem && options.properties.length) {
+    if (!fetchDoc && options.properties.length) {
       let diff = difference(options.properties, index.projection);
       useProjection = diff.length === 0;
       if (!useProjection) {
-        fetchItem = true;
+        fetchDoc = true;
         if (this.log) {
-          this.log.debug('An index projection doesn\'t satisfy requested properties, full item will be fetched');
+          this.log.debug('An index projection doesn\'t satisfy requested properties, full documents will be fetched');
         }
       }
     }
@@ -584,22 +584,22 @@ export class DocumentStore {
 
     let iterationsCount = 0;
     await this.initializeDocumentStore();
-    let items = await this.store.find(options);
-    let transformedItems = [];
-    for (let item of items) {
-      let transformedItem = { key: last(item.key) };
-      if (useProjection) transformedItem.value = item.value;
-      transformedItems.push(transformedItem);
+    let docs = await this.store.find(options);
+    let transformedDocs = [];
+    for (let doc of docs) {
+      let transformedDoc = { key: last(doc.key) };
+      if (useProjection) transformedDoc.value = doc.value;
+      transformedDocs.push(transformedDoc);
       if (++iterationsCount % RESPIRATION_RATE === 0) await setImmediatePromise();
     }
-    items = transformedItems;
+    docs = transformedDocs;
 
-    if (fetchItem) {
-      let keys = items.map(item => item.key);
-      items = await this.getMany(collection, keys, { errorIfMissing: false });
+    if (fetchDoc) {
+      let keys = docs.map(doc => doc.key);
+      docs = await this.getMany(collection, keys, { errorIfMissing: false });
     }
 
-    return items;
+    return docs;
   }
 
   // Options: same as find() without 'reverse' and 'properties' attributes.
@@ -635,14 +635,14 @@ export class DocumentStore {
     options = clone(options);
     options.limit = options.batchSize; // TODO: global 'limit' option
     while (true) {
-      let items = await this.find(collection, options);
-      if (!items.length) break;
-      for (let i = 0; i < items.length; i++) {
-        let item = items[i];
-        await fn.call(thisArg, item.value, item.key);
+      let docs = await this.find(collection, options);
+      if (!docs.length) break;
+      for (let i = 0; i < docs.length; i++) {
+        let doc = docs[i];
+        await fn.call(thisArg, doc.value, doc.key);
       }
-      let lastItem = last(items);
-      options.startAfter = this.makeOrderKey(lastItem.key, lastItem.value, options.order);
+      let lastDoc = last(docs);
+      options.startAfter = this.makeOrderKey(lastDoc.key, lastDoc.value, options.order);
       delete options.start;
     }
   }
@@ -653,14 +653,14 @@ export class DocumentStore {
     options = this.normalizeOptions(options);
     options = clone(options);
     options.properties = [];
-    let deletedItemsCount = 0;
+    let deletedDocsCount = 0;
     await this.forEach(collection, options, async function(value, key) {
       let hasBeenDeleted = await this.delete(
         collection, key, { errorIfMissing: false }
       );
-      if (hasBeenDeleted) deletedItemsCount++;
+      if (hasBeenDeleted) deletedDocsCount++;
     }, this);
-    return deletedItemsCount;
+    return deletedDocsCount;
   }
 
   // === Transactions ====
@@ -681,7 +681,7 @@ export class DocumentStore {
 
   // === Helpers ====
 
-  makeItemKey(collection, key) {
+  makeDocumentKey(collection, key) {
     return [this.name, collection.name, key];
   }
 
@@ -701,9 +701,9 @@ export class DocumentStore {
     return key;
   }
 
-  normalizeItem(item) {
-    if (!(item && typeof item === 'object')) throw new Error('Invalid item type');
-    return item;
+  normalizeDocument(doc) {
+    if (!(doc && typeof doc === 'object')) throw new Error('Invalid document type');
+    return doc;
   }
 
   normalizeOptions(options) {

@@ -34,7 +34,7 @@ describe('DocumentStore', function() {
       }
     });
 
-    it('should handle one item in a collection', async function() {
+    it('should handle one document in a collection', async function() {
       let store, stats;
       try {
         store = new DocumentStore({
@@ -188,8 +188,8 @@ describe('DocumentStore', function() {
           collections: [{
             name: 'People',
             indexes: [{
-              properties: function name(item) {
-                return item.name && item.name.toLowerCase();
+              properties: function name(doc) {
+                return doc.name && doc.name.toLowerCase();
               },
               projection: ['name'],
               version: 2
@@ -235,7 +235,7 @@ describe('DocumentStore', function() {
       assert.strictEqual(collection.indexes.length, 0);
     });
 
-    it('should put, get and delete some items', async function() {
+    it('should put, get and delete some documents', async function() {
       await store.put('Users', 'mvila', { firstName: 'Manu', age: 42 });
       let user = await store.get('Users', 'mvila');
       assert.deepEqual(user, { firstName: 'Manu', age: 42 });
@@ -266,8 +266,8 @@ describe('DocumentStore', function() {
                 properties: 'country',
                 projection: ['firstName', 'lastName']
               },
-              function fullNameSortKey(item) {
-                return makeSortKey(item.lastName, item.firstName);
+              function fullNameSortKey(doc) {
+                return makeSortKey(doc.lastName, doc.firstName);
               }
             ]
           }
@@ -325,38 +325,38 @@ describe('DocumentStore', function() {
       assert.strictEqual(collection.indexes[0].properties[0].key, 'lastName');
     });
 
-    it('should get many items', async function() {
-      let items = await store.getMany('People', ['aaa', 'ccc']);
-      assert.strictEqual(items.length, 2);
-      assert.strictEqual(items[0].key, 'aaa');
-      assert.strictEqual(items[0].value.firstName, 'Manuel');
-      assert.strictEqual(items[1].key, 'ccc');
-      assert.strictEqual(items[1].value.firstName, 'Bob');
+    it('should get many documents', async function() {
+      let docs = await store.getMany('People', ['aaa', 'ccc']);
+      assert.strictEqual(docs.length, 2);
+      assert.strictEqual(docs[0].key, 'aaa');
+      assert.strictEqual(docs[0].value.firstName, 'Manuel');
+      assert.strictEqual(docs[1].key, 'ccc');
+      assert.strictEqual(docs[1].value.firstName, 'Bob');
     });
 
-    it('should find all items in a collection', async function() {
-      let items = await store.find('People');
-      assert.strictEqual(items.length, 6);
-      assert.strictEqual(items[0].key, 'aaa');
-      assert.strictEqual(items[0].value.firstName, 'Manuel');
-      assert.strictEqual(items[5].key, 'fff');
-      assert.strictEqual(items[5].value.firstName, 'Jacques');
+    it('should find all documents in a collection', async function() {
+      let docs = await store.find('People');
+      assert.strictEqual(docs.length, 6);
+      assert.strictEqual(docs[0].key, 'aaa');
+      assert.strictEqual(docs[0].value.firstName, 'Manuel');
+      assert.strictEqual(docs[5].key, 'fff');
+      assert.strictEqual(docs[5].value.firstName, 'Jacques');
     });
 
-    it('should find and order items', async function() {
-      let items = await store.find('People', { order: 'age' });
-      assert.strictEqual(items.length, 6);
-      assert.strictEqual(items[0].key, 'ccc');
-      assert.strictEqual(items[0].value.age, 20);
-      assert.strictEqual(items[5].key, 'bbb');
-      assert.strictEqual(items[5].value.age, 60);
+    it('should find and order documents', async function() {
+      let docs = await store.find('People', { order: 'age' });
+      assert.strictEqual(docs.length, 6);
+      assert.strictEqual(docs[0].key, 'ccc');
+      assert.strictEqual(docs[0].value.age, 20);
+      assert.strictEqual(docs[5].key, 'bbb');
+      assert.strictEqual(docs[5].value.age, 60);
 
-      items = await store.find('People', { order: 'age', reverse: true });
-      assert.strictEqual(items.length, 6);
-      assert.strictEqual(items[0].key, 'bbb');
-      assert.strictEqual(items[0].value.age, 60);
-      assert.strictEqual(items[5].key, 'ccc');
-      assert.strictEqual(items[5].value.age, 20);
+      docs = await store.find('People', { order: 'age', reverse: true });
+      assert.strictEqual(docs.length, 6);
+      assert.strictEqual(docs[0].key, 'bbb');
+      assert.strictEqual(docs[0].value.age, 60);
+      assert.strictEqual(docs[5].key, 'ccc');
+      assert.strictEqual(docs[5].value.age, 20);
 
       let err = await catchError(async function() {
         await store.find('People', { order: 'missingProperty' });
@@ -364,104 +364,104 @@ describe('DocumentStore', function() {
       assert.instanceOf(err, Error);
     });
 
-    it('should find items with a query', async function() {
-      let items = await store.find('People', { query: { country: 'France' } });
-      let keys = pluck(items, 'key');
+    it('should find documents with a query', async function() {
+      let docs = await store.find('People', { query: { country: 'France' } });
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
 
-      items = await store.find('People', { query: { country: 'USA' } });
-      keys = pluck(items, 'key');
+      docs = await store.find('People', { query: { country: 'USA' } });
+      keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['bbb', 'ccc', 'fff']);
 
-      items = await store.find('People', { query: { city: 'New York', country: 'USA' } });
-      keys = pluck(items, 'key');
+      docs = await store.find('People', { query: { city: 'New York', country: 'USA' } });
+      keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['bbb']);
 
-      items = await store.find('People', { query: { country: 'Japan' } });
-      assert.strictEqual(items.length, 0);
+      docs = await store.find('People', { query: { country: 'Japan' } });
+      assert.strictEqual(docs.length, 0);
     });
 
-    it('should find items with a query and an order', async function() {
-      let items = await store.find('People', {
+    it('should find documents with a query and an order', async function() {
+      let docs = await store.find('People', {
         query: { country: 'USA' }, order: 'city'
       });
-      let keys = pluck(items, 'key');
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['ccc', 'bbb', 'fff']);
 
-      items = await store.find('People', {
+      docs = await store.find('People', {
         query: { country: 'USA' }, order: 'city', reverse: true
       });
-      keys = pluck(items, 'key');
+      keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['fff', 'bbb', 'ccc']);
     });
 
-    it('should find items after a specific item', async function() {
-      let items = await store.find('People', {
+    it('should find documents after a specific document', async function() {
+      let docs = await store.find('People', {
         query: { country: 'USA' }, order: 'city', start: 'New York'
       });
-      let keys = pluck(items, 'key');
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['bbb', 'fff']);
 
-      items = await store.find('People', {
+      docs = await store.find('People', {
         query: { country: 'USA' }, order: 'city', startAfter: 'New York'
       });
-      keys = pluck(items, 'key');
+      keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['fff']);
     });
 
-    it('should find items before a specific item', async function() {
-      let items = await store.find('People', {
+    it('should find documents before a specific document', async function() {
+      let docs = await store.find('People', {
         query: { country: 'USA' }, order: 'city', end: 'New York'
       });
-      let keys = pluck(items, 'key');
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['ccc', 'bbb']);
 
-      items = await store.find('People', {
+      docs = await store.find('People', {
         query: { country: 'USA' }, order: 'city', endBefore: 'New York'
       });
-      keys = pluck(items, 'key');
+      keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['ccc']);
     });
 
-    it('should find a limited number of items', async function() {
-      let items = await store.find('People', {
+    it('should find a limited number of documents', async function() {
+      let docs = await store.find('People', {
         query: { country: 'France' }, limit: 2
       });
-      let keys = pluck(items, 'key');
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd']);
     });
 
-    it('should find items using an index projection', async function() {
-      let items = await store.find('People', {
+    it('should find documents using an index projection', async function() {
+      let docs = await store.find('People', {
         query: { country: 'France' }, properties: ['firstName', 'lastName']
       });
-      let keys = pluck(items, 'key');
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
-      assert.deepEqual(items[0].value, { firstName: 'Manuel', lastName: 'Vila' });
+      assert.deepEqual(docs[0].value, { firstName: 'Manuel', lastName: 'Vila' });
 
-      items = await store.find('People', { // will not use projection
+      docs = await store.find('People', { // will not use projection
         query: { country: 'France' }, properties: ['firstName', 'lastName', 'age']
       });
-      keys = pluck(items, 'key');
+      keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
-      assert.deepEqual(items[0].value, {
+      assert.deepEqual(docs[0].value, {
         firstName: 'Manuel', lastName: 'Vila',
         age: 42, city: 'Paris', country: 'France'
       });
     });
 
-    it('should find items using a computed index', async function() {
-      let items = await store.find('People', { order: 'fullNameSortKey' });
-      let keys = pluck(items, 'key');
+    it('should find documents using a computed index', async function() {
+      let docs = await store.find('People', { order: 'fullNameSortKey' });
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['ccc', 'bbb', 'eee', 'fff', 'aaa', 'ddd']);
     });
 
-    it('should count all items in a collection', async function() {
+    it('should count all documents in a collection', async function() {
       let count = await store.count('People');
       assert.strictEqual(count, 6);
     });
 
-    it('should count items with a query', async function() {
+    it('should count documents with a query', async function() {
       let count = await store.count('People', {
         query: { age: 39 }
       });
@@ -483,7 +483,7 @@ describe('DocumentStore', function() {
       assert.strictEqual(count, 0);
     });
 
-    it('should iterate over items', async function() {
+    it('should iterate over documents', async function() {
       let keys = [];
       await store.forEach('People', { batchSize: 2 }, async function(value, key) {
         keys.push(key);
@@ -491,7 +491,7 @@ describe('DocumentStore', function() {
       assert.deepEqual(keys, ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff']);
     });
 
-    it('should iterate over items in a specific order', async function() {
+    it('should iterate over documents in a specific order', async function() {
       let keys = [];
       let options = { order: ['lastName', 'firstName'], batchSize: 2 };
       await store.forEach('People', options, async function(value, key) {
@@ -500,50 +500,50 @@ describe('DocumentStore', function() {
       assert.deepEqual(keys, ['ccc', 'bbb', 'eee', 'fff', 'aaa', 'ddd']);
     });
 
-    it('should find and delete items', async function() {
+    it('should find and delete documents', async function() {
       let options = { query: { country: 'France' }, batchSize: 2 };
-      let deletedItemsCount = await store.findAndDelete('People', options);
-      assert.strictEqual(deletedItemsCount, 3);
-      let items = await store.find('People');
-      let keys = pluck(items, 'key');
+      let deletedDocsCount = await store.findAndDelete('People', options);
+      assert.strictEqual(deletedDocsCount, 3);
+      let docs = await store.find('People');
+      let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['bbb', 'ccc', 'fff']);
-      deletedItemsCount = await store.findAndDelete('People', options);
-      assert.strictEqual(deletedItemsCount, 0);
+      deletedDocsCount = await store.findAndDelete('People', options);
+      assert.strictEqual(deletedDocsCount, 0);
     });
 
-    it('shold change an item inside a transaction', async function() {
+    it('shold change a document inside a transaction', async function() {
       assert.isFalse(store.insideTransaction);
       await store.transaction(async function(transaction) {
         assert.isTrue(transaction.insideTransaction);
-        let innerItem = await transaction.get('People', 'aaa');
-        assert.strictEqual(innerItem.firstName, 'Manuel');
-        innerItem.firstName = 'Manu';
-        await transaction.put('People', 'aaa', innerItem);
-        innerItem = await transaction.get('People', 'aaa');
-        assert.strictEqual(innerItem.firstName, 'Manu');
+        let innerDoc = await transaction.get('People', 'aaa');
+        assert.strictEqual(innerDoc.firstName, 'Manuel');
+        innerDoc.firstName = 'Manu';
+        await transaction.put('People', 'aaa', innerDoc);
+        innerDoc = await transaction.get('People', 'aaa');
+        assert.strictEqual(innerDoc.firstName, 'Manu');
       });
-      let item = await store.get('People', 'aaa');
-      assert.strictEqual(item.firstName, 'Manu');
+      let doc = await store.get('People', 'aaa');
+      assert.strictEqual(doc.firstName, 'Manu');
     });
 
-    it('should change an item inside an aborted transaction', async function() {
+    it('should change a document inside an aborted transaction', async function() {
       try {
         assert.isFalse(store.insideTransaction);
         await store.transaction(async function(transaction) {
           assert.isTrue(transaction.insideTransaction);
-          let innerItem = await transaction.get('People', 'aaa');
-          assert.strictEqual(innerItem.firstName, 'Manuel');
-          innerItem.firstName = 'Manu';
-          await transaction.put('People', 'aaa', innerItem);
-          innerItem = await transaction.get('People', 'aaa');
-          assert.strictEqual(innerItem.firstName, 'Manu');
+          let innerDoc = await transaction.get('People', 'aaa');
+          assert.strictEqual(innerDoc.firstName, 'Manuel');
+          innerDoc.firstName = 'Manu';
+          await transaction.put('People', 'aaa', innerDoc);
+          innerDoc = await transaction.get('People', 'aaa');
+          assert.strictEqual(innerDoc.firstName, 'Manu');
           throw new Error('something wrong');
         });
       } catch (err) {
         // noop
       }
-      let item = await store.get('People', 'aaa');
-      assert.strictEqual(item.firstName, 'Manuel');
+      let doc = await store.get('People', 'aaa');
+      assert.strictEqual(doc.firstName, 'Manuel');
     });
   }); // rich document store
 });
