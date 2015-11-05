@@ -147,32 +147,55 @@ let store = new DocumentStore(
       - `version` _(optional)_: this option is useful in conjunction with computed properties. Since the migration engine cannot detect changes made inside functions, it is unable to automatically rebuild indexes when necessary. So, when you change the logic of a computed property, you can increment the `version` option to force the reindexing.
 - `log` _(optional)_: an instance of [UniversalLog](https://www.npmjs.com/package/universal-log) used by the document store when important events occur.
 
-#### `options`
-
-#### `Collection definition`
-
-A collection definition can be either a string or an object. In case of a string, it represents the name of the collection. In case of an object, the following properties are available:
-
-- `name`: the name of the document store to create.
-
-### `store.get(key, [options])`
-
-Get an item from the store.
+#### Example
 
 ```javascript
-let user = await store.get(['users', 'abc123']);
+let store = new DocumentStore({
+  name: 'MyCoolProject',
+  url: 'mysql://test@localhost/test',
+  collections: [
+    'Countries', // no indexes
+    {
+      name: 'People',
+      indexes: [
+        'age', // simple index
+        ['lastName', 'firstName'], // compound index
+        {
+          properties: [
+            function sortKey(doc) { // computed index
+              return doc.lastName && doc.lastName.toLowerCase();
+            }
+          ],
+          version: 1 // to increment in case the logic of the function changes
+        },
+        {
+          properties: ['createdOn'],
+          projection: ['firstName', 'lastName', 'age'] // projection for fast queries
+        }
+      ]
+    }
+  ]
+});
+```
+
+### `store.get(collection, key, [options])`
+
+Get a document from the store.
+
+```javascript
+let person = await store.get('People', 'abc123');
 ```
 
 #### `options`
 
 - `errorIfMissing` _(default: `true`)_: if `true`, an error is thrown if the specified `key` is missing from the store. If `false`, the method returns `undefined` when the `key` is missing.
 
-### `store.put(key, value, [options])`
+### `store.put(collection, key, doc, [options])`
 
-Put an item in the store.
+Put a document in the store.
 
 ```javascript
-await store.put(['users', 'abc123'], { firstName: 'Manu', age: 42 });
+await store.put('People', 'abc123', { name: 'John', age: 42 });
 ```
 
 #### `options`
@@ -180,118 +203,134 @@ await store.put(['users', 'abc123'], { firstName: 'Manu', age: 42 });
 - `createIfMissing` _(default: `true`)_: if `false`, an error is thrown if the specified `key` is missing from the store. This way you can ensure an "update" semantic.
 - `errorIfExists` _(default: `false`)_: if `true`, an error is thrown if the specified `key` is already present in the store. This way you can ensure a "create" semantic.
 
-### `store.delete(key, [options])`
+### `store.delete(collection, key, [options])`
 
-Delete an item from the store.
+Delete a document from the store.
 
 ```javascript
-await store.delete(['users', 'abc123']);
+let hasBeenDeleted = await store.delete('People', 'abc123');
 ```
 
 #### `options`
 
 - `errorIfMissing` _(default: `true`)_: if `true`, an error is thrown if the specified `key` is missing from the store. If `false`, the method returns `false` when the `key` is missing.
 
-### `store.getMany(keys, [options])`
+### `store.getMany(collection, keys, [options])`
 
-Get several items from the store. Return an array of objects composed of two properties: `key` and `value`. The order of the specified `keys` is preserved in the result.
+Get several document from the store. Return an array of objects composed of two properties: `key` and `document`. The order of the specified `keys` is preserved in the result.
 
 ```javascript
-let users = await store.getMany([
-  ['users', 'abc123'],
-  ['users', 'abcde67890'],
-  // ...
+let people = await store.getMany('People', ['abc123', 'def789', /* ... */]);
 ]);
 ```
 
 #### `options`
 
 - `errorIfMissing` _(default: `true`)_: if `true`, an error is thrown if one of the specified `keys` is missing from the store.
-- `returnValues` _(default: `true`)_: if `false`, only keys found in the store are returned (no `value` property).
 
-### `store.putMany(items, [options])`
+### `store.find(collection, [options])`
 
-Not implemented yet.
-
-### `store.deleteMany(keys, [options])`
-
-Not implemented yet.
-
-### `store.find([options])`
-
-Fetch items matching the specified criteria. Return an array of objects composed of two properties: `key` and `value`. The returned items are ordered by key.
+Find documents matching the specified criteria. Return an array of objects composed of two properties: `key` and `document`.
 
 ```javascript
-// Fetch all users
-let users = await store.find({ prefix: 'users' });
+// Find everyone
+let people = await store.find('People');
 
-// Fetch 30 users after the 'abc123' key
-let users = await store.find({
-  prefix: 'users',
-  startAfter: 'abc123',
-  limit: 30
+// Find people living in Tokyo
+let people = await store.find('People', { query: { city: 'Tokyo' } });
+
+// Find all single females between 30 and 40
+let people = await store.find('People', {
+  query: { gender: 'female', status: 'single' },
+  order: ['age'],
+  start: 30,
+  end: 40
 });
 ```
 
 #### `options`
 
-- `prefix`: fetch items with keys starting with the specified value.
-- `start`, `startAfter`: fetch items with keys greater than (or equal to if you use the `start` option) the specified value.
-- `end`, `endBefore`: fetch items with keys less than (or equal to if you use the `end` option) the specified value.
+- `query`: an object of key-value pairs corresponding to the search criteria.
+- `order`: an array of property names specifying the sort order. When no `order` is specified, the returned items are sorted by key.
+- `start`, `startAfter`: when you specify the `order` option, you can limit the returned items to those greater (or equal) the specified values. When no `order` is specified, you can use the `start` and `startAfter` options to fetch only the items starting with a certain `key`. Finally, since the items are always sorted by `order` and then by `key`, you can specify both at the same time (e.g. `['Tokyo', 'abc123']`).
+- `end`, `endBefore`: similar to `start`, `startAfter` but for the less than (or equal) condition.
 - `reverse` _(default: `false`)_: if `true`, reverse the order of returned items.
-- `limit` _(default: `50000`)_: limit the number of fetched items to the specified value.
-- `returnValues` _(default: `true`)_: if `false`, only keys found in the store are returned (no `value` property).
+- `limit` _(default: `50000`)_: limit the number of returned items to the specified value.
+- `properties` _(default: `'*'`)_: an array of property names or the `'*'` string. If `'*'` is specified (the default), all document properties are returned. Otherwise, only the specified properties are returned. Used in conjunction with a `projection`, you can significantly speed up the query.
 
-### `store.count([options])`
+### `store.count(collection, [options])`
 
-Count items matching the specified criteria.
+Count documents matching the specified criteria.
 
 ```javascript
-let users = await store.count({
-  prefix: 'users',
-  startAfter: 'abc123'
+let people = await store.find('People', {
+  query: { city: 'Tokyo', country: 'Japan' }
 });
 ```
 
 #### `options`
 
-- `prefix`: count items with keys starting with the specified value.
-- `start`, `startAfter`: count items with keys greater than (or equal to if you use the `start` option) the specified value.
-- `end`, `endBefore`: count items with keys less than (or equal to if you use the `end` option) the specified value.
+Same options as the `find()` method (excepted `reverse` and `properties` that are useless in the context of a count).
 
-### `store.findAndDelete([options])`
+### `store.findAndDelete(collection, [options])`
 
-Delete items matching the specified criteria. Return the number of deleted items.
+Delete documents matching the specified criteria. Return the number of deleted documents.
 
 ```javascript
-let users = await store.findAndDelete({
-  prefix: 'users',
-  startAfter: 'abc123'
+let deletedDocsCount = await store.findAndDelete('People', {
+  query: { country: 'France' }
 });
 ```
 
 #### `options`
 
-- `prefix`: delete items with keys starting with the specified value.
-- `start`, `startAfter`: delete items with keys greater than (or equal to if you use the `start` option) the specified value.
-- `end`, `endBefore`: delete items with keys less than (or equal to if you use the `end` option) the specified value.
+Same options as the `find()` method (excepted the `properties` option that are useless in the context of a deletion).
 
-### `store.transaction(fun)`
+### `store.forEach(collection, options, fn, [thisArg])`
 
-Run the specified function inside a transaction. The function receives a transaction handler as first argument. This handler should be used as a replacement of the store for every operation made during the execution of the transaction. If any error occurs, the transaction is aborted and the store is automatically rolled back.
+Run a function for each document matching the specified criteria. The function is called with `thisArg` as `this` context and it receives two parameters: the document and the key.
+
+```javascript
+await store.forEach(
+  'People',
+  { query: { country: 'Japan' } },
+  function(person, key) {
+    console.log(person.name);
+  }
+);
+```
+
+#### `options`
+
+Same options as the `find()` method with the addition of:
+
+- `batchSize` _(default: `250`)_: maximum number of documents to fetch at the same time. Internally, the `find()` method is used to fetch the documents and the `batchSize` option can be useful to limit the workload.
+
+### `store.transaction(fn)`
+
+Run the specified function inside a transaction. The function receives a transaction handler as first argument. This handler should be used as a replacement of the document store for every operation made during the execution of the transaction. If any error occurs, the transaction is aborted and the document store is automatically rolled back.
 
 ```javascript
 // Increment a counter
 await store.transaction(async function(transaction) {
-  let value = await transaction.get('counter');
-  value++;
-  await transaction.put('counter', value);
+  let counter = await transaction.get('Counters', 'abc123');
+  counter.value++;
+  await transaction.put('Counters', 'abc123', counter);
 });
 ```
 
 ### `store.close()`
 
-Close all connections to the store.
+Close all connections to the document store.
+
+```javascript
+await store.close();
+```
+
+## To do
+
+- Collection renaming.
+- More tests and better documentation (help wanted!).
 
 ## License
 
