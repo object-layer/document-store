@@ -15,7 +15,7 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }],
+          collections: ['Collection1'],
           log
         });
 
@@ -40,7 +40,7 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }],
+          collections: ['Collection1'],
           log
         });
         await store.put('Collection1', 'aaa', { property1: 'value1' });
@@ -59,7 +59,7 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }],
+          collections: ['Collection1'],
           log
         });
         await store.initializeDocumentStore();
@@ -69,7 +69,7 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }, { name: 'Collection2' }],
+          collections: ['Collection1', 'Collection2'],
           log
         });
         await store.initializeDocumentStore();
@@ -79,7 +79,7 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection2' }],
+          collections: ['Collection2'],
           log
         });
         await store.initializeDocumentStore();
@@ -104,7 +104,7 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }],
+          collections: ['Collection1'],
           log
         });
         await store.put('Collection1', 'aaa', { property1: 'value1' });
@@ -130,7 +130,7 @@ describe('DocumentStore', function() {
         store = new DocumentStore({
           name: 'Test',
           url: 'mysql://test@localhost/test',
-          collections: [{ name: 'Collection1' }],
+          collections: ['Collection1'],
           log
         });
         await store.initializeDocumentStore();
@@ -189,8 +189,7 @@ describe('DocumentStore', function() {
             name: 'People',
             indexes: [{
               properties: function name(item) {
-                if (!item || item.name == null) return undefined;
-                return item.name.toLowerCase();
+                return item.name && item.name.toLowerCase();
               },
               projection: ['name'],
               version: 2
