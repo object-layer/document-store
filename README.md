@@ -328,6 +328,35 @@ Close all connections to the document store.
 await store.close();
 ```
 
+## Events
+
+The following events are emitted by the document store:
+
+- `'didCreate'`: the document store has been created for the first time.
+- `'didInitialize'`: the document store has been initialized.
+- `'willUpgrade'`/`'didUpgrade'`: the document store will/did perform an upgrade.
+- `'willMigrate'`/`'didMigrate'`: the document store will/did perform a migration.
+- `'willPut'`/`'didPut'`: a document will be/has been put in the document store. Listeners receive the following parameters: `collection`, `key`, `oldDocument`, `newDocument`, `options`.
+- `'willDelete'`/`'didDelete'`: a document will be/has been deleted from the document store. Listeners receive the following parameters: `collection`, `key`, `document`, `options`.
+
+The [EventEmitterMixin](https://www.npmjs.com/package/event-emitter-mixin) module is used to send the events. To define a listener, just call the `on()` method on the document store. By returning a promise (or using ES7 `async` keyword), listeners can be asynchronous.
+
+`'willPut'` and `'willDelete'` are emitted inside a transaction. If any listener throws an error, the document store is automatically rolled back. `'didPut'` and `'didDelete'` are emitted after the transaction has been committed.
+
+### Example
+
+```javascript
+store.on('willDelete', async function(collection, key, document, options) {
+  if (collection === 'People') {
+    let person = document;
+    // delete related documents
+    for (let photoId of person.photoIds) {
+      await this.delete('Photos', photoId);
+    }
+  }
+});
+```
+
 ## To do
 
 - Collection renaming.
