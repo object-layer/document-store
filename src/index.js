@@ -473,13 +473,15 @@ export class DocumentStore {
     doc = this.normalizeDocument(doc);
     options = this.normalizeOptions(options);
     await this.initializeDocumentStore();
+    let oldDoc;
     await this.transaction(async function(tr) {
       let docKey = tr.makeDocumentKey(collection, key);
-      let oldDoc = await tr.store.get(docKey, { errorIfMissing: false });
+      oldDoc = await tr.store.get(docKey, { errorIfMissing: false });
+      await tr.emit('willPut', collection, key, oldDoc, doc, options);
       await tr.store.put(docKey, doc, options);
       await tr.updateIndexes(collection, key, oldDoc, doc);
-      await tr.emit('didPut', collection, key, doc, options);
     });
+    await this.emit('didPut', collection, key, oldDoc, doc, options);
   }
 
   // Options:
@@ -490,15 +492,19 @@ export class DocumentStore {
     options = this.normalizeOptions(options);
     let hasBeenDeleted = false;
     await this.initializeDocumentStore();
+    let oldDoc;
     await this.transaction(async function(tr) {
       let docKey = tr.makeDocumentKey(collection, key);
-      let oldDoc = await tr.store.get(docKey, options);
+      oldDoc = await tr.store.get(docKey, options);
       if (oldDoc) {
+        await tr.emit('willDelete', collection, key, oldDoc, options);
         hasBeenDeleted = await tr.store.delete(docKey, options);
         await tr.updateIndexes(collection, key, oldDoc, undefined);
-        await tr.emit('didDelete', collection, key, oldDoc, options);
       }
     });
+    if (oldDoc) {
+      await this.emit('didDelete', collection, key, oldDoc, options);
+    }
     return hasBeenDeleted;
   }
 
