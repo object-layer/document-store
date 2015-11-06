@@ -349,9 +349,9 @@ The [EventEmitterMixin](https://www.npmjs.com/package/event-emitter-mixin) modul
 store.on('willDelete', async function(collection, key, document, options) {
   if (collection === 'People') {
     let person = document;
-    // delete related documents
+    // Delete related documents
     for (let photoId of person.photoIds) {
-      await this.delete('Photos', photoId);
+      await this.delete('Photos', photoId); // 'this' is a transaction handler
     }
   }
 });
@@ -360,7 +360,7 @@ store.on('willDelete', async function(collection, key, document, options) {
 ## To do
 
 - Collection renaming.
-- More tests and better documentation (help wanted!).
+- More tests and better documentation ([help wanted!](https://github.com/object-layer/document-store/issues/1)).
 
 ## License
 
