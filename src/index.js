@@ -126,7 +126,7 @@ export class DocumentStore {
       throw new Error('Cannot downgrade the document store');
     }
 
-    this.emit('upgradeDidStart');
+    this.emit('willUpgrade');
 
     if (version < 2) {
       delete record.lastMigrationNumber;
@@ -145,7 +145,7 @@ export class DocumentStore {
       this.log.info(`Document store '${this.name}' upgraded to version ${VERSION}`);
     }
 
-    this.emit('upgradeDidStop');
+    this.emit('didUpgrade');
   }
 
   async verifyDocumentStore() {
@@ -225,14 +225,14 @@ export class DocumentStore {
 
   _emitMigrationDidStart() {
     if (!this.migrationDidStartEventHasBeenEmitted) {
-      this.emit('migrationDidStart');
+      this.emit('willMigrate');
       this.migrationDidStartEventHasBeenEmitted = true;
     }
   }
 
   _emitMigrationDidStop() {
     if (this.migrationDidStartEventHasBeenEmitted) {
-      this.emit('migrationDidStop');
+      this.emit('didMigrate');
       delete this.migrationDidStartEventHasBeenEmitted;
     }
   }
