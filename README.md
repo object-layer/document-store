@@ -8,9 +8,9 @@ Document stores offer a very good developer experience. Take MongoDB for example
 
 So, what's wrong?
 
-First, I don't know how you guys are doing but the lack of transaction is a big concern for me. There are many cases where we have objects with their own identity (therefore not aggregatable) and strong connections between them. To sleep well at night I have to be sure about the integrity of my data.
+First, I don't know how you guys are doing but the lack of transactions is a big concern for me. There are many cases where we have objects with their own identity (therefore not aggregatable) and strong connections between them. To sleep well at night I have to be sure about the integrity of my data.
 
-Second, I have a little problem of commitment. Choosing a database is not a small matter. If I go on MongoDB today and I want to switch to something else in the future, the transition could be painful. The smartest choices are those that engage us as less as possible. When I select something as important as a database, I want to choose a set of features and an API but not a particular implementation.
+Second, I have a little problem with commitment. Choosing a database is not a small matter. If I go on MongoDB today and I want to switch to something else in the future, the transition could be painful. The smartest choices are those that lock us in as little as possible. When I select something as important as a database, I want to choose a set of features and an API but not a particular implementation.
 
 That's why I created this module which is nothing but a layer on top of [KeyValueStore](https://www.npmjs.com/package/key-value-store), a simple module abstracting any kind of transactional key-value store.
 
@@ -264,7 +264,7 @@ Note: the property names specified in the `query` and `order` options should mat
 Count the number of documents matching the specified criteria.
 
 ```javascript
-let peopleCount = await store.find('People', {
+let peopleCount = await store.count('People', {
   query: { city: 'Tokyo', country: 'Japan' }
 });
 ```
@@ -309,7 +309,7 @@ Same options as the `find()` method with the addition of:
 
 ### `store.transaction(fn)`
 
-Run the specified function inside a transaction. The function receives a transaction handler as first argument. This handler should be used as a replacement of the document store for every operation made during the execution of the transaction. If any error occurs, the transaction is aborted and the document store is automatically rolled back.
+Run the specified function inside a transaction. The function receives a transaction handler as its first argument. This handler should be used as a replacement of the document store for every operation made during the execution of the transaction. If any error occurs, the transaction is aborted and the document store is automatically rolled back.
 
 ```javascript
 // Increment a counter
