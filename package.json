@@ -20,7 +20,7 @@
     "test": "mocha --compilers js:babel/register"
   },
   "dependencies": {
-    "event-emitter-mixin": "^0.1.6",
+    "event-emitter-mixin": "^0.1.7",
     "expand-flatten": "^1.0.0",
     "fn-name": "^2.0.1",
     "lodash.clone": "^3.0.3",
