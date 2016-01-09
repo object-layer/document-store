@@ -24,6 +24,13 @@ That's why I created this module which is nothing but a layer on top of [KeyValu
 - ES7 `async`/`await` ready.
 - Works in Node and browser.
 
+### Supported databases
+
+Since this module is built on top of [KeyValueStore](https://www.npmjs.com/package/key-value-store), the supported databases are:
+
+- Every databases supported by [AnySQL](https://www.npmjs.com/package/anysql).
+- More to come...
+
 ## Installation
 
 ```
