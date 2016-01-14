@@ -1,7 +1,7 @@
 'use strict';
 
 import assert from 'assert';
-import EventEmitter from 'event-emitter-mixin';
+import EventEmitterMixin from 'event-emitter-mixin';
 import KeyValueStore from 'key-value-store';
 import sleep from 'sleep-promise';
 import setImmediatePromise from 'set-immediate-promise';
@@ -17,9 +17,10 @@ import Collection from './collection';
 let VERSION = 3;
 const RESPIRATION_RATE = 250;
 
-@EventEmitter
-export class DocumentStore {
+export class DocumentStore extends EventEmitterMixin() {
   constructor(options = {}) {
+    super(options);
+
     if (!options.name) throw new Error('Document store name is missing');
     if (!options.url) throw new Error('Document store URL is missing');
 
