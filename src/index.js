@@ -19,7 +19,7 @@ const RESPIRATION_RATE = 250;
 
 export class DocumentStore extends EventEmitterMixin() {
   constructor(options = {}) {
-    super(options);
+    super();
 
     if (!options.name) throw new Error('Document store name is missing');
     if (!options.url) throw new Error('Document store URL is missing');

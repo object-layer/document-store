@@ -10,6 +10,8 @@ let log = new UniversalLog();
 describe('DocumentStore', function() {
   describe('migrations', function() {
     it('should handle one empty collection', async function() {
+      this.timeout(30000);
+
       let store, stats;
       try {
         store = new DocumentStore({
