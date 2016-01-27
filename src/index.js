@@ -244,7 +244,6 @@ export class DocumentStore extends EventEmitterMixin() {
       this.log.info(`Adding index '${indexName}' (document store '${this.name}', collection '${collection.name}')...`);
     }
     await this.forEach(collection, {}, async function(doc, key) {
-      console.log(doc, key);
       await this.updateIndex(collection, key, undefined, doc, index);
     }, this);
   }
