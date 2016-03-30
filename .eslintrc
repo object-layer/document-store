@@ -2,5 +2,5 @@
   "extends": "eslint-config-next",
   "env": {
     "mocha": true
-  },
+  }
 }

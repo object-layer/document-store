@@ -6,12 +6,12 @@ import KeyValueStore from 'key-value-store';
 import sleep from 'sleep-promise';
 import setImmediatePromise from 'set-immediate-promise';
 import { flatten } from 'expand-flatten';
-import clone from 'lodash.clone';
-import difference from 'lodash.difference';
-import isEmpty from 'lodash.isempty';
-import isEqual from 'lodash.isequal';
-import last from 'lodash.last';
-import pull from 'lodash.pull';
+import clone from 'lodash/clone';
+import difference from 'lodash/difference';
+import isEmpty from 'lodash/isEmpty';
+import isEqual from 'lodash/isEqual';
+import last from 'lodash/last';
+import pull from 'lodash/pull';
 import Collection from './collection';
 
 let VERSION = 3;

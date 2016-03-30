@@ -1,4 +1,2 @@
-.eslintrc
 .travis.yml
-src
-test.js
+notes.md

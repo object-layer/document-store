@@ -1,7 +1,7 @@
 'use strict';
 
-import difference from 'lodash.difference';
-import isEqual from 'lodash.isequal';
+import difference from 'lodash/difference';
+import isEqual from 'lodash/isEqual';
 import Index from './index-class';
 
 export class Collection {

@@ -1,7 +1,7 @@
 'use strict';
 
 import fnName from 'fn-name';
-import isPlainObject from 'lodash.isplainobject';
+import isPlainObject from 'lodash/isPlainObject';
 
 export class Index {
   constructor(options = {}) {
