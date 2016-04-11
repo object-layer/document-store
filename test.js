@@ -270,7 +270,8 @@ describe('DocumentStore', function() {
               },
               function fullNameSortKey(doc) {
                 return makeSortKey(doc.lastName, doc.firstName);
-              }
+              },
+              'tags'
             ]
           }
         ],
@@ -285,15 +286,18 @@ describe('DocumentStore', function() {
     beforeEach(async function() {
       await store.put('People', 'aaa', {
         firstName: 'Manuel', lastName: 'Vila',
-        age: 42, city: 'Paris', country: 'France'
+        age: 42, city: 'Paris', country: 'France',
+        tags: ['cool', 'guy']
       });
       await store.put('People', 'bbb', {
         firstName: 'Jack', lastName: 'Daniel',
-        age: 60, city: 'New York', country: 'USA'
+        age: 60, city: 'New York', country: 'USA',
+        tags: ['drunk', 'guy']
       });
       await store.put('People', 'ccc', {
         firstName: 'Bob', lastName: 'Cracker',
-        age: 20, city: 'Los Angeles', country: 'USA'
+        age: 20, city: 'Los Angeles', country: 'USA',
+        tags: ['cool', 'guy']
       });
       await store.put('People', 'ddd', {
         firstName: 'Vincent', lastName: 'Vila',
@@ -322,7 +326,7 @@ describe('DocumentStore', function() {
       assert.strictEqual(store.collections.length, 1);
       let collection = store.collections[0];
       assert.strictEqual(collection.name, 'People');
-      assert.strictEqual(collection.indexes.length, 5);
+      assert.strictEqual(collection.indexes.length, 6);
       assert.strictEqual(collection.indexes[0].properties.length, 2);
       assert.strictEqual(collection.indexes[0].properties[0].key, 'lastName');
     });
@@ -448,7 +452,8 @@ describe('DocumentStore', function() {
       assert.deepEqual(keys, ['aaa', 'ddd', 'eee']);
       assert.deepEqual(docs[0].document, {
         firstName: 'Manuel', lastName: 'Vila',
-        age: 42, city: 'Paris', country: 'France'
+        age: 42, city: 'Paris', country: 'France',
+        tags: ['cool', 'guy']
       });
     });
 
@@ -456,6 +461,32 @@ describe('DocumentStore', function() {
       let docs = await store.find('People', { order: 'fullNameSortKey' });
       let keys = pluck(docs, 'key');
       assert.deepEqual(keys, ['ccc', 'bbb', 'eee', 'fff', 'aaa', 'ddd']);
+    });
+
+    it('should find documents using an array index', async function() {
+      let docs, keys;
+
+      docs = await store.find('People', { query: { tags: 'cool' } });
+      keys = pluck(docs, 'key');
+      assert.deepEqual(keys, ['aaa', 'ccc']);
+
+      docs = await store.find('People', { query: { tags: 'guy' } });
+      keys = pluck(docs, 'key');
+      assert.deepEqual(keys, ['aaa', 'bbb', 'ccc']);
+
+      docs = await store.find('People', { query: { tags: 'drunk' } });
+      keys = pluck(docs, 'key');
+      assert.deepEqual(keys, ['bbb']);
+
+      let person = await store.get('People', 'aaa');
+      person.tags = ['cool', 'man'];
+      await store.put('People', 'aaa', person);
+      docs = await store.find('People', { query: { tags: 'cool' } });
+      keys = pluck(docs, 'key');
+      assert.deepEqual(keys, ['aaa', 'ccc']);
+      docs = await store.find('People', { query: { tags: 'guy' } });
+      keys = pluck(docs, 'key');
+      assert.deepEqual(keys, ['bbb', 'ccc']);
     });
 
     it('should count all documents in a collection', async function() {

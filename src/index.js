@@ -5,7 +5,7 @@ import EventEmitterMixin from 'event-emitter-mixin';
 import KeyValueStore from 'key-value-store';
 import sleep from 'sleep-promise';
 import setImmediatePromise from 'set-immediate-promise';
-import { flatten } from 'expand-flatten';
+import get from 'lodash/get';
 import clone from 'lodash/clone';
 import difference from 'lodash/difference';
 import isEmpty from 'lodash/isEmpty';
@@ -376,15 +376,13 @@ export class DocumentStore extends EventEmitterMixin() {
   }
 
   async updateIndex(collection, key, oldDoc, newDoc, index) {
-    let flattenedOldDoc = flatten(oldDoc);
-    let flattenedNewDoc = flatten(newDoc);
     let oldValues = [];
     let newValues = [];
     index.properties.forEach(property => {
       let oldValue, newValue;
       if (property.value === true) { // simple index
-        oldValue = oldDoc && flattenedOldDoc[property.key];
-        newValue = newDoc && flattenedNewDoc[property.key];
+        oldValue = oldDoc && get(oldDoc, property.key);
+        newValue = newDoc && get(newDoc, property.key);
       } else { // computed index
         oldValue = oldDoc && property.value(oldDoc);
         newValue = newDoc && property.value(newDoc);
@@ -392,32 +390,60 @@ export class DocumentStore extends EventEmitterMixin() {
       oldValues.push(oldValue);
       newValues.push(newValue);
     });
+
     let oldProjection;
     let newProjection;
     if (index.projection) {
       index.projection.forEach(k => {
-        let val = flattenedOldDoc[k];
+        let val = get(oldDoc, k);
         if (val != null) {
           if (!oldProjection) oldProjection = {};
           oldProjection[k] = val;
         }
-        val = flattenedNewDoc[k];
+        val = get(newDoc, k);
         if (val != null) {
           if (!newProjection) newProjection = {};
           newProjection[k] = val;
         }
       });
     }
+
     let valuesAreDifferent = !isEqual(oldValues, newValues);
     let projectionIsDifferent = !isEqual(oldProjection, newProjection);
+
     if (valuesAreDifferent && !oldValues.includes(undefined)) {
-      let indexKey = this.makeIndexKey(collection, index, oldValues, key);
-      await this.store.delete(indexKey);
+      // OPTIMIZE: delete only differences between oldValues and newValues
+      for (let oldVals of this.scatter(oldValues)) {
+        // OPTIMIZE: implement and use store.deleteMany()
+        let indexKey = this.makeIndexKey(collection, index, oldVals, key);
+        await this.store.delete(indexKey);
+      }
     }
+
     if ((valuesAreDifferent || projectionIsDifferent) && !newValues.includes(undefined)) {
-      let indexKey = this.makeIndexKey(collection, index, newValues, key);
-      await this.store.put(indexKey, newProjection);
+      // OPTIMIZE: put only differences between oldValues and newValues
+      for (let newVals of this.scatter(newValues)) {
+        // OPTIMIZE: implement and use store.putMany()
+        let indexKey = this.makeIndexKey(collection, index, newVals, key);
+        await this.store.put(indexKey, newProjection);
+      }
     }
+  }
+
+  // ['a', [1, 2]] => [['a', 1], ['a', 2]]
+  scatter(inputs) {
+    let outputs = [];
+    let lastInput = last(inputs);
+    if (Array.isArray(lastInput)) {
+      let otherInputs = inputs.slice(0, -1);
+      for (let val of lastInput) {
+        let output = otherInputs.concat(val);
+        outputs.push(output);
+      }
+    } else {
+      outputs.push(inputs);
+    }
+    return outputs;
   }
 
   makeIndexName(keys) {

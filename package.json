@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "event-emitter-mixin": "^0.3.4",
-    "expand-flatten": "^1.0.0",
     "fn-name": "^2.0.1",
     "key-value-store": "^0.2.1",
     "lodash": "^4.6.1",
