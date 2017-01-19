@@ -243,8 +243,16 @@ export class DocumentStore extends EventEmitterMixin() {
     if (this.log) {
       this.log.info(`Adding index '${indexName}' (document store '${this.name}', collection '${collection.name}')...`);
     }
-    await this.forEach(collection, {}, async function(doc, key) {
+    let count = 0;
+    let previousRoundedCount = 0;
+    await this.forEach(collection, { batchSize: 2500 }, async function(doc, key) {
       await this.updateIndex(collection, key, undefined, doc, index);
+      count++;
+      const roundedCount = count - count % 5000;
+      if (roundedCount !== previousRoundedCount) {
+        this.log.info(`${roundedCount} items scanned (document store '${this.name}', collection '${collection.name}', index '${indexName})`);
+        previousRoundedCount = roundedCount;
+      }
     }, this);
   }
 
@@ -255,8 +263,16 @@ export class DocumentStore extends EventEmitterMixin() {
     }
     let prefix = [this.name, this.makeIndexCollectionName(collection.name, indexName)];
     await this.store.findAndDelete({ prefix });
-    await this.forEach(collection, {}, async function(doc, key) {
+    let count = 0;
+    let previousRoundedCount = 0;
+    await this.forEach(collection, { batchSize: 2500 }, async function(doc, key) {
       await this.updateIndex(collection, key, undefined, doc, index);
+      count++;
+      const roundedCount = count - count % 5000;
+      if (roundedCount !== previousRoundedCount) {
+        this.log.info(`${roundedCount} items scanned (document store '${this.name}', collection '${collection.name}', index '${indexName})`);
+        previousRoundedCount = roundedCount;
+      }
     }, this);
   }
 
